@@ -1,0 +1,37 @@
+{
+  "name": "true-memory",
+  "version": "0.1.0",
+  "description": "Persistent memory plugin for OpenCode - inspired by PsychMem with crash fixes",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@opencode-ai/plugin --external:uuid --external:node:sqlite --external:bun:sqlite",
+    "dev": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@opencode-ai/plugin --external:uuid --external:node:sqlite --external:bun:sqlite --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai-memory",
+    "opencode",
+    "plugin",
+    "persistent-memory"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.2.6",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "@types/uuid": "^10.0.0",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
+  }
+}
