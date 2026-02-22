@@ -24,13 +24,15 @@ Leggi `AGENTS.md` per il context completo.
 ```json
 {
   "dependencies": {
-    "@opencode-ai/plugin": "^1.2.6",  // REGOLARE, NON PEER!
+    "@opencode-ai/plugin": "^1.2.6",
+    "@opencode-ai/sdk": "^1.2.6",     // NECESSARIO per types!
     "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",
-    "typescript": "^5.9.3",
-    "esbuild": "^0.27.3"
+    "@types/uuid": "^10.0.0",
+    "bun-types": "^1.3.0",            // NECESSARIO per bun build!
+    "typescript": "^5.9.3"
   }
 }
 ```
@@ -38,6 +40,25 @@ Leggi `AGENTS.md` per il context completo.
 **⚠️ NON USARE:**
 - ❌ `better-sqlite3` - DEPRECATO dalla 1.0.4 di PsychMem
 - ❌ `@opencode-ai/plugin` come peer optional - CAUSA CRASH
+- ❌ **esbuild** - CAUSA CRASH IN OPENCODE (vedi sezione BUG RISOLTO)
+
+### Build Strategy: BUN BUILD (NON esbuild!)
+
+**⚠️ CRITICAL**: esbuild con `--external` blocca OpenCode. Usare **bun build**.
+
+```json
+{
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc --emitDeclarationOnly"
+  }
+}
+```
+
+**Verifica** che il bundle abbia header `// @bun`:
+```bash
+head -1 dist/index.js
+# → // @bun
+```
 
 ### SQLite Strategy (Built-in, Zero Dipendenze)
 
@@ -605,8 +626,18 @@ export default TrueMemory;
 
 #### Step 1.6: Build e Test
 
+**⚠️ USA BUN BUILD, NON ESBUILD!**
+
 ```bash
+# Installa dipendenze
+npm install
+
+# Build con bun
 npm run build
+
+# Verifica header
+head -1 dist/index.js
+# Deve mostrare: // @bun
 ```
 
 Configura `opencode.jsonc`:
@@ -620,6 +651,14 @@ Avvia OpenCode e verifica:
 - [ ] Plugin carica senza crash
 - [ ] Log creato in `~/.true-memory/plugin-debug.log`
 - [ ] Database creato in `~/.true-memory/memory.db`
+
+### 🟢 BUG RISOLTO: esbuild → bun build
+
+**Sintomo**: OpenCode si avvia, schermo nero, prompt non appare mai.
+
+**Root cause**: esbuild con `--external` non è compatibile con OpenCode.
+
+**Soluzione**: Usare `bun build` invece di esbuild. Il bundle prodotto ha header `// @bun` che OpenCode riconosce.
 
 ---
 
@@ -645,14 +684,16 @@ Avvia OpenCode e verifica:
 
 ## Checklist Pre-Commit
 
-- [ ] `npm run build` senza errori
-- [ ] Plugin carica senza crash in OpenCode
-- [ ] Log funzionante in `~/.true-memory/plugin-debug.log`
-- [ ] Database creato in `~/.true-memory/memory.db`
-- [ ] Lazy initialization implementata
-- [ ] Nessuna dipendenza da `ctx.client.app.log()` nel default export
-- [ ] `@opencode-ai/plugin` come dipendenza REGOLARE (non peer)
-- [ ] SQLite con bun:sqlite o node:sqlite (NO better-sqlite3)
+- [x] `npm run build` senza errori (con **bun build**)
+- [x] Plugin carica senza crash in OpenCode
+- [x] Log funzionante in `~/.true-memory/plugin-debug.log`
+- [x] Database creato in `~/.true-memory/memory.db`
+- [x] Lazy initialization implementata
+- [x] Nessuna dipendenza da `ctx.client.app.log()` nel default export
+- [x] `@opencode-ai/plugin` come dipendenza REGOLARE (non peer)
+- [x] `@opencode-ai/sdk` come dipendenza (per types)
+- [x] SQLite con bun:sqlite o node:sqlite (NO better-sqlite3)
+- [x] **bun build** invece di esbuild (NO esbuild!)
 
 ---
 
@@ -704,25 +745,34 @@ sqlite3 ~/.true-memory/memory.db "SELECT classification, COUNT(*) FROM memory_un
 5. **NON** iniettare tutte le memorie - usa retrieval contestuale
 6. **NON** applicare decay a tutte le memorie - solo episodic
 7. **NON** penalizzare automaticamente interferenze - usa LLM reconsolidation
+8. **NON** usare esbuild con `--external` → **BLOCCA OPENCODE** (usa bun build!)
 
 ### Pattern da seguire
 
 1. `@opencode-ai/plugin` come dipendenza REGOLARE
-2. File-based logger in `~/.true-memory/`
-3. Default export pulito, init lazy
-4. SQLite: `bun:sqlite` o `node:sqlite` (built-in)
-5. Copiare file da PsychMem e adattare, non riscrivere da zero
+2. `@opencode-ai/sdk` come dipendenza (per types Message, Part, Event)
+3. File-based logger in `~/.true-memory/`
+4. Default export pulito, init lazy
+5. SQLite: `bun:sqlite` o `node:sqlite` (built-in)
+6. **Bun build** per il bundle (NON esbuild!)
+7. Copiare file da PsychMem e adattare, non riscrivere da zero
 
 ---
 
 ## Commands
 
 ```bash
-# Build
+# Build (con bun!)
 npm run build
+
+# Verifica bundle
+head -1 dist/index.js  # Deve mostrare: // @bun
 
 # Watch mode
 npm run dev
+
+# TypeCheck
+npm run typecheck
 
 # Test in OpenCode (add to opencode.jsonc)
 # "plugin": ["file:///Users/riccardosallusti/Documents/_PROGETTI/true-memory"]
@@ -744,6 +794,6 @@ rm ~/.true-memory/memory.db*
 
 - **Creato**: 22/02/2026
 - **Aggiornato**: 22/02/2026
-- **Stato**: Piano completo con info corrette da PsychMem 1.0.5
-- **Fase corrente**: FASE 1 - Foundation
-- **Prossimo step**: Step 1.1 - Setup progetto
+- **Stato**: FASE 1 COMPLETATA ✅
+- **Bug risolto**: esbuild → bun build
+- **Prossimo step**: FASE 2 - Estrazione memorie completa
