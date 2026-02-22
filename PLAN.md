@@ -232,6 +232,36 @@ maxMemoriesPerStop: 7      // Miller's 7±2
 
 ## Injection & Retrieval
 
+### Lazy Injection per Sessioni Continuate (da PR #2)
+
+**Problema**: Le sessioni continuate con `opencode -c` NON ricevono l'evento `session.created`, quindi non ricevevano mai le memorie.
+
+**Soluzione**: Lazy injection sul primo messaggio utente.
+
+```typescript
+// Traccia sessioni già iniettate
+injectedSessions: Set<string>;
+
+// In handleMessageUpdated:
+if (role === 'user' && !state.injectedSessions.has(sessionId)) {
+  state.injectedSessions.add(sessionId);
+  const memories = await getRelevantMemories(state, limit);
+  if (memories.length > 0) {
+    await injectContext(state, sessionId, formatMemories(memories));
+    log(ctx, 'info', `Lazy injection: ${memories.length} memories on continued session`);
+  }
+}
+```
+
+| Scenario | Comportamento |
+|----------|---------------|
+| Nuova sessione | Injection su `session.created` |
+| Sessione continuata, solo lettura | Nessuna injection |
+| Sessione continuata, primo prompt utente | **Lazy injection** |
+| Sessione continuata, prompt successivi | Già iniettato, skip |
+
+**⚠️ IMPORTANTE**: L'injection deve essere `await` prima di procedere con l'estrazione, per evitare race condition sul DB.
+
 ### Scoping
 
 | Scope | Iniezione | Esempio |
