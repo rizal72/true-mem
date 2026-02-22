@@ -13,6 +13,78 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 
 ---
 
+## ✅ CURRENT STATUS - FASE 1 COMPLETATA
+
+**Data ultimo aggiornamento**: 22/02/2026
+
+### Stato Implementazione
+
+| Componente | Status | Note |
+|------------|--------|------|
+| package.json | ✅ | Deps: @opencode-ai/plugin, @opencode-ai/sdk, uuid, bun-types |
+| tsconfig.json | ✅ | ESM, Node 22+, strict |
+| src/logger.ts | ✅ | File-based, rotate 10MB |
+| src/config.ts | ✅ | Default config completo |
+| src/types.ts | ✅ | Types + SDK re-exports |
+| src/storage/sqlite-adapter.ts | ✅ | bun:sqlite + node:sqlite |
+| src/storage/database.ts | ✅ | MemoryDatabase class |
+| src/memory/patterns.ts | ✅ | 659 lines, 15 languages |
+| src/adapters/opencode/index.ts | ✅ | Adapter con hooks |
+| src/index.ts | ✅ | Entry point con lazy init |
+| **Build** | ✅ | `dist/index.js` (33kb) - **BUN BUILD** |
+| **TypeCheck** | ✅ | 0 errors |
+| **Runtime Test** | ✅ | **FUNZIONA** |
+
+### 🟢 BUG RISOLTO: esbuild → bun build
+
+**Sintomo originale**: OpenCode si avvia, schermo nero, prompt non appare mai.
+
+**Root cause**: **esbuild con `--external` non è compatibile con OpenCode**. Il bundle funziona in Node puro ma crasha in OpenCode prima di eseguire qualsiasi codice.
+
+**Soluzione**: Usare `bun build` invece di esbuild:
+
+```json
+{
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc --emitDeclarationOnly"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.0"
+  }
+}
+```
+
+**Verifica**: Il bundle deve avere header `// @bun`:
+```bash
+head -1 dist/index.js
+# → // @bun
+```
+
+### Dipendenze Corrette (package.json)
+
+```json
+{
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.2.6",
+    "@opencode-ai/sdk": "^1.2.6",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "@types/uuid": "^10.0.0",
+    "bun-types": "^1.3.0",
+    "typescript": "^5.9.3"
+  }
+}
+```
+
+**⚠️ CRITICAL**:
+- `@opencode-ai/sdk` è RICHIESTO per importare `Message`, `Part`, `Event` types
+- **NON usare esbuild** - causa crash in OpenCode
+- **Usare bun build** - OpenCode è già basato su Bun
+
+---
+
 ## Project Overview
 
 **True-Memory** è un sistema di memoria persistente per AI coding agents (OpenCode), ispirato a [PsychMem](https://github.com/muratg98/psychmem) v1.0.5 ma con correzioni architetturali e miglioramenti.
@@ -39,26 +111,6 @@ PsychMem 1.0.5 funziona ma ha causato crash nelle versioni precedenti:
 
 ## 🔴 CRITICAL: Dipendenze e SQLite
 
-### Dependencies (package.json)
-
-```json
-{
-  "dependencies": {
-    "@opencode-ai/plugin": "^1.2.6",  // REGOLARE, NON PEER!
-    "uuid": "^13.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^25.0.0",
-    "typescript": "^5.9.3",
-    "esbuild": "^0.27.3"
-  }
-}
-```
-
-**⚠️ NON USARE:**
-- ❌ `better-sqlite3` - DEPRECATO dalla PsychMem 1.0.4
-- ❌ `@opencode-ai/plugin` come peer optional - CAUSA CRASH
-
 ### SQLite Strategy (Built-in, Zero Dipendenze)
 
 | Runtime | Module | Note |
@@ -67,7 +119,6 @@ PsychMem 1.0.5 funziona ma ha causato crash nelle versioni precedenti:
 | **Node 22+** | `node:sqlite` | Built-in, `DatabaseSync` |
 
 ```typescript
-// Copiare da psychmem/src/storage/sqlite-adapter.ts
 export async function createDatabase(dbPath: string): Promise<SqliteDatabase> {
   if (isBun()) {
     const { Database } = await import('bun:sqlite');
@@ -79,81 +130,57 @@ export async function createDatabase(dbPath: string): Promise<SqliteDatabase> {
 }
 ```
 
+**⚠️ NON USARE:**
+- ❌ `better-sqlite3` - DEPRECATO
+- ❌ `@opencode-ai/plugin` come peer optional - CAUSA CRASH
+- ❌ Operazioni bloccanti nel default export - BLOCCA OPENCODE
+
 ---
 
 ## I 5 Miglioramenti (dal feedback Reddit)
 
 ### 1. Decay Intelligente (non solo temporale)
-
-**Problema PsychMem**: Applica la curva di Ebbinghaus a TUTTE le memorie.
-
-**Soluzione True-Memory**: Decay solo per `episodic`. Tutte le altre rimangono finché non revocate.
+Decay solo per `episodic`. Tutte le altre rimangono finché non revocate.
 
 ### 2. Vector Embeddings (non Jaccard)
-
-**Problema PsychMem**: Jaccard similarity. "DB is broken" e "Postgres crashes" hanno similarità 0.0.
-
-**Soluzione True-Memory**: Dense vector embeddings con cosine similarity.
+Dense vector embeddings con cosine similarity.
 
 ### 3. Retrieval Contestuale (non injection globale)
-
-**Problema PsychMem**: Inietta TUTTE le memorie → bloat context.
-
-**Soluzione True-Memory**: Embedda il prompt, cerca top-k, inietta solo quelle.
+Embedda il prompt, cerca top-k, inietta solo quelle.
 
 ### 4. Estrazione Asincrona (non blocking)
-
-**Problema PsychMem**: Estrae dopo ogni messaggio, bloccando.
-
-**Soluzione True-Memory**: Background processing, risponde subito.
+Background processing, risponde subito.
 
 ### 5. Reconsolidation LLM (non interferenza automatica)
-
-**Problema PsychMem**: Penalizza automaticamente se similarity 0.3-0.8.
-
-**Soluzione True-Memory**: LLM eval: conflitto, complemento o duplicato?
+LLM eval: conflitto, complemento o duplicato?
 
 ---
 
-## Architettura
+## Architettura Attuale
 
 ```
 true-memory/
 ├── src/
-│   ├── index.ts                 # Entry point (plugin.js style)
-│   ├── types.ts                 # Type definitions
+│   ├── index.ts                 # Entry point ⚠️ DA FIXARE
+│   ├── types.ts                 # Type definitions + SDK re-exports
 │   ├── config.ts                # Default config
 │   ├── logger.ts                # File-based logger
 │   ├── storage/
 │   │   ├── sqlite-adapter.ts    # bun:sqlite / node:sqlite
 │   │   └── database.ts          # MemoryDatabase class
 │   ├── memory/
-│   │   ├── patterns.ts          # Multilingual patterns (659 lines)
-│   │   ├── structural.ts        # Structural analysis
-│   │   ├── scorer.ts            # Feature scoring
-│   │   ├── context-sweep.ts     # Stage 1 extraction
-│   │   ├── selective-memory.ts  # Stage 2 allocation
-│   │   ├── retrieval.ts         # Contextual retrieval
-│   │   └── decay.ts             # Decay logic
+│   │   └── patterns.ts          # Multilingual patterns (659 lines)
 │   └── adapters/
 │       └── opencode/
 │           └── index.ts         # OpenCode adapter
+├── dist/
+│   └── index.js                 # Bundle (28.3kb)
 ├── package.json
 ├── tsconfig.json
 ├── .gitignore
 ├── AGENTS.md
 └── PLAN.md
 ```
-
-### File da copiare da PsychMem
-
-| File | Fonte | Righe |
-|------|-------|-------|
-| `sqlite-adapter.ts` | `psychmem/src/storage/sqlite-adapter.ts` | 128 |
-| `database.ts` | `psychmem/src/storage/database.ts` | 937 |
-| `patterns.ts` | `psychmem/src/memory/patterns.ts` | 659 |
-| `types.ts` | `psychmem/src/types/index.ts` | 541 |
-| `opencode/index.ts` | `psychmem/src/adapters/opencode/index.ts` | 1055 |
 
 ---
 
@@ -170,71 +197,6 @@ true-memory/
 | **semantic** | Mai | STM | Project | "API uses REST, not GraphQL" |
 | **episodic** | Sì (7gg) | STM | Project | "Yesterday we refactored auth" |
 
-### Scope
-
-| Scope | Iniezione |
-|-------|-----------|
-| **user-level** | Sempre (constraint, preference, learning, procedural) |
-| **project-level** | Solo se matching project (decision, bugfix, semantic, episodic) |
-
----
-
-## Hooks OpenCode
-
-```typescript
-{
-  // Session lifecycle
-  event: async ({ event }) => {
-    switch (event.type) {
-      case 'session.created':    // Create session, inject memories
-      case 'session.idle':       // Extract memories (incremental)
-      case 'session.deleted':    // End session
-      case 'session.error':      // End session (abandoned)
-      case 'message.updated':    // Per-message extraction + lazy injection
-    }
-  },
-  
-  // Tool results
-  'tool.execute.after': async (input, output) => {
-    // Capture tool results
-    // input: { tool, sessionID, callID, args }
-    // output: { title, output, metadata }
-  },
-  
-  // Compaction
-  'experimental.session.compacting': async (input, output) => {
-    // Phase 1: EXTRACT memories before compaction
-    // Phase 2: INJECT memories into compaction prompt
-    // output.prompt = buildCompactionPrompt(memories)
-  },
-}
-```
-
----
-
-## Lazy Injection (PR #2)
-
-**Problema**: Sessioni continuate con `opencode -c` NON ricevono `session.created`, quindi niente memorie.
-
-**Soluzione**: Lazy injection sul primo messaggio utente.
-
-```typescript
-injectedSessions: Set<string>;
-
-// In handleMessageUpdated:
-if (role === 'user' && !state.injectedSessions.has(sessionId)) {
-  state.injectedSessions.add(sessionId);
-  await injectContext(state, sessionId, memories);  // AWAIT prima di extraction!
-}
-```
-
-| Scenario | Comportamento |
-|----------|---------------|
-| Nuova sessione | Injection su `session.created` |
-| Sessione continuata, solo lettura | Nessuna injection |
-| Sessione continuata, primo prompt utente | **Lazy injection** |
-| Sessione continuata, prompt successivi | Già iniettato, skip |
-
 ---
 
 ## Plugin Installation
@@ -243,74 +205,11 @@ if (role === 'user' && !state.injectedSessions.has(sessionId)) {
 
 ```json
 {
-  "plugin": ["file:///Users/riccardosallusti/Documents/_PROGETTI/true-memory"]
+  "plugin": [
+    "file:///Users/riccardosallusti/Documents/_PROGETTI/true-memory"
+  ]
 }
 ```
-
-### Via npm (produzione)
-
-```json
-{
-  "plugin": ["true-memory"]
-}
-```
-
----
-
-## Logger
-
-**⚠️ CRITICAL**: NON usare `ctx.client.app.log()` nel default export o prima che ctx sia pronto.
-
-```typescript
-// src/logger.ts
-import { appendFileSync, existsSync, mkdirSync, statSync, renameSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
-
-const LOG_DIR = join(homedir(), '.true-memory');
-const LOG_FILE = join(LOG_DIR, 'plugin-debug.log');
-const LOG_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
-
-export function log(message: string, data?: unknown): void {
-  try {
-    if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
-    
-    // Rotate if > 10 MB
-    try {
-      if (existsSync(LOG_FILE) && statSync(LOG_FILE).size >= LOG_MAX_BYTES) {
-        renameSync(LOG_FILE, join(LOG_DIR, 'plugin-debug.log.1'));
-      }
-    } catch {}
-    
-    const timestamp = new Date().toISOString();
-    const entry = `[${timestamp}] ${message}${data ? ' ' + JSON.stringify(data) : ''}\n`;
-    appendFileSync(LOG_FILE, entry);
-  } catch {}
-}
-```
-
----
-
-## Entry Point (plugin.js style)
-
-```typescript
-// src/index.ts
-import type { Plugin } from '@opencode-ai/plugin';
-import { createTrueMemoryPlugin } from './adapters/opencode/index.js';
-import { log } from './logger.js';
-
-const TrueMemory: Plugin = async (ctx) => {
-  log('Plugin loading started');
-  return await createTrueMemoryPlugin(ctx);
-};
-
-export default TrueMemory;
-```
-
-**⚠️ CRITICAL**:
-- NO init pesante nel default export
-- NO ctx.client.app.log() nel default export
-- Init lazy dentro `createTrueMemoryPlugin`
 
 ---
 
@@ -320,10 +219,8 @@ export default TrueMemory;
 # Visualizzare log
 tail -f ~/.true-memory/plugin-debug.log
 
-# Query database
+# Query database (quando funzionante)
 sqlite3 ~/.true-memory/memory.db ".schema"
-sqlite3 ~/.true-memory/memory.db "SELECT COUNT(*) FROM memory_units;"
-sqlite3 ~/.true-memory/memory.db "SELECT classification, summary FROM memory_units;"
 
 # Cercare errori
 grep -i "error" ~/.true-memory/plugin-debug.log
@@ -335,22 +232,14 @@ grep -i "error" ~/.true-memory/plugin-debug.log
 
 **REGOLA**: Commit sempre e solo in locale. Push SOLO quando il plugin è testato e funzionante.
 
-```bash
-# Durante sviluppo - SOLO commit locali
-git add .
-git commit -m "feat: descrizione"
-
-# Quando il plugin è funzionante e testato
-git push origin main
-```
+**Commit attuali**: 6 locali (non pushati)
 
 ---
 
 ## Risorse
 
 - [PsychMem repo](https://github.com/muratg98/psychmem) - Codice di riferimento
-- [PsychMem locale](~/Documents/_PROGETTI/psychmem) - Per copia file
-- [PR #2](https://github.com/muratg98/psychmem/pull/2) - Lazy injection (nostra, inclusa in 1.0.5)
+- [PsychMem locale](~/Documents/_PROGETTI/psychmem) - Per copia file e PR bun build fix
 - [oh-my-opencode-slim](~/Documents/_PROGETTI/oh-my-opencode-slim) - Plugin funzionante di riferimento
 
 ---
@@ -360,5 +249,5 @@ git push origin main
 - **Creato**: 22/02/2026
 - **Ispirato da**: [PsychMem](https://github.com/muratg98/psychmem) v1.0.5
 - **Miglioramenti**: Basati su feedback Reddit r/opencodeCLI
-- **PR #2**: Lazy injection per sessioni continuate
-- **Obiettivo**: Plugin di memoria robusto, senza crash, semanticamente intelligente
+- **Bug risolto**: esbuild → bun build fix
+- **Stato**: FASE 1 completata, plugin funzionante
