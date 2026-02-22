@@ -446,6 +446,101 @@ event: async ({ event }) => {
 
 ---
 
+## 🔴 CRITICAL: Async Extraction Architecture
+
+### Problema
+
+PsychMem blocca l'UI durante l'estrazione:
+- ESC lento (premere molte volte)
+- Progress bar continua dopo fine task (~10s)
+
+### Root Cause
+
+```typescript
+// SBAGLIATO - blocca l'UI
+event: async ({ event }) => {
+  await hooks.event({ event });  // ← BLOCCA finché non finisce
+},
+```
+
+### Soluzione: Fire-and-Forget + Debounce
+
+**Principio**: La hook function ritorna IMMEDIATAMENTE. Tutto il lavoro pesante parte in background.
+
+```typescript
+// CORRETTO - non blocca
+event: async ({ event }) => {
+  // Skip sincrono (no await)
+  if (silentEvents.has(event.type)) return;
+  
+  // Fire-and-forget
+  lazyInit().then(hooks => {
+    if (hooks.event) {
+      hooks.event({ event }).catch(err => log(`Error: ${err}`));
+    }
+  });
+  // Ritorna IMMEDIATAMENTE
+},
+```
+
+### Strategie per Evento
+
+| Evento | Strategia | Motivo |
+|--------|-----------|--------|
+| `message.updated` | **Debounce 500ms** + fire-and-forget | Firea spesso, batching necessario |
+| `session.idle` | `queueMicrotask` + fire-and-forget | Firea una volta, lavoro pesante |
+| `session.created` | Fire-and-forget | Veloce, chiamato una volta |
+| `tool.execute.after` | Fire-and-forget | Cattura risultati tool |
+| `experimental.session.compacting` | Await (eccezione) | Deve completare prima di compaction |
+
+### Debounce Implementation
+
+```typescript
+// Per message.updated - evita elaborazione su ogni token
+let messageDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingMessageEvent: { properties: unknown } | null = null;
+
+async function handleMessageUpdated(state, eventProps) {
+  pendingMessageEvent = { properties: eventProps };
+  
+  if (messageDebounceTimer) {
+    clearTimeout(messageDebounceTimer);
+  }
+  
+  messageDebounceTimer = setTimeout(() => {
+    if (pendingMessageEvent) {
+      processMessageUpdate(state, pendingMessageEvent.properties)
+        .catch(err => log(`Message processing error: ${err}`));
+    }
+    pendingMessageEvent = null;
+    messageDebounceTimer = null;
+  }, 500);
+}
+```
+
+### QueueMicrotask per Session Idle
+
+```typescript
+async function handleSessionIdle(state, sessionId) {
+  // Defer al prossimo tick dell'event loop
+  queueMicrotask(() => {
+    performSessionIdleWork(state, sessionId)
+      .catch(err => log(`Session idle error: ${err}`));
+  });
+}
+```
+
+### Perché NON Workers?
+
+| Fattore | Workers | Fire-and-Forget |
+|---------|---------|-----------------|
+| SQLite | Connessioni separate per worker | Singola connessione |
+| Serializzazione | Overhead | Zero overhead |
+| Complessità | Message passing | Semplice `.catch()` |
+| Compatibilità Bun | Funziona ma complesso | Async nativo |
+
+---
+
 ## Config Defaults
 
 ```typescript

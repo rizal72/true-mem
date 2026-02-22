@@ -139,46 +139,13 @@ export async function createDatabase(dbPath: string): Promise<SqliteDatabase> {
 
 ## I 5 Miglioramenti (dal feedback Reddit)
 
-### 1. Decay Intelligente (non solo temporale)
-Decay solo per `episodic`. Tutte le altre rimangono finché non revocate.
+1. **Decay Intelligente** - Decay solo per `episodic`, le altre permangono
+2. **Vector Embeddings** - Cosine similarity invece di Jaccard
+3. **Retrieval Contestuale** - Top-k invece di injection globale
+4. **Estrazione Asincrona** - Fire-and-forget per non bloccare l'UI
+5. **Reconsolidation LLM** - Valutazione conflitti via LLM
 
-### 2. Vector Embeddings (non Jaccard)
-Dense vector embeddings con cosine similarity.
-
-### 3. Retrieval Contestuale (non injection globale)
-Embedda il prompt, cerca top-k, inietta solo quelle.
-
-### 4. Estrazione Asincrona (non blocking)
-
-**Problema PsychMem**: Estrazione blocca l'UI → ESC lento, progress bar continua dopo fine task.
-
-**Soluzione True-Memory**: Fire-and-forget + debounce.
-
-```typescript
-// MAI await sul lavoro di estrazione!
-event: async ({ event }) => {
-  // Skip sincrono (no await)
-  if (silentEvents.has(event.type)) return;
-  
-  // Fire-and-forget
-  lazyInit().then(hooks => {
-    if (hooks.event) {
-      hooks.event({ event }).catch(err => log(`Error: ${err}`));
-    }
-  });
-  // Ritorna IMMEDIATAMENTE - UI non bloccata
-},
-```
-
-| Evento | Strategia |
-|--------|-----------|
-| `message.updated` | Debounce 500ms + fire-and-forget |
-| `session.idle` | `queueMicrotask` + fire-and-forget |
-| `session.created` | Fire-and-forget |
-
-**Principio**: La hook function ritorna subito. Tutto il lavoro pesante parte in background, errori solo loggati.
-
-### 5. Reconsolidation LLM (non interferenza automatica)
+Vedi `PLAN.md` per i dettagli implementativi.
 LLM eval: conflitto, complemento o duplicato?
 
 ---
