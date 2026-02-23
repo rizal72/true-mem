@@ -993,72 +993,198 @@ function formatMemoriesForInjection(memories: Memory[]): string {
 
 **Obiettivo**: Retrieval semantico con embeddings invece di Jaccard.
 
-#### Step 4.1: Embeddings module
+#### Architecture Decisions
+
+| Aspect | Choice | Rationale |
+|--------|--------|-----------|
+| **Library** | `@huggingface/transformers` (Transformers.js) | Local, private, free - no API keys needed |
+| **Model** | `Xenova/all-MiniLM-L6-v2` (quantized) | ~43MB RAM, fast inference, good semantic quality |
+| **Storage** | BLOB in SQLite | Float32Array → Buffer for storage |
+| **Retrieval** | In-memory cosine similarity | SQLite lacks vector extensions |
+| **Optimization** | Singleton + lazy loading + dispose | Minimize memory footprint |
+
+#### Step 4.1: Embeddings module (Local with Transformers.js)
 
 Crea `src/memory/embeddings.ts`:
 
 ```typescript
-import OpenAI from 'openai';
+import { pipeline, env } from '@huggingface/transformers';
 
-let openai: OpenAI | null = null;
+// Disable local model checks (we'll use pre-quantized models)
+env.allowLocalModels = false;
+env.useBrowserCache = false;
 
-function getClient(): OpenAI {
-  if (!openai) {
-    openai = new OpenAI(); // Uses OPENAI_API_KEY env var
+// Singleton pattern for embedding pipeline
+let embeddingPipeline: any = null;
+let pipelineReady = false;
+
+/**
+ * Lazy load the embedding pipeline (only on first use)
+ */
+async function getPipeline(): Promise<any> {
+  if (pipelineReady) {
+    return embeddingPipeline;
   }
-  return openai;
+
+  if (!embeddingPipeline) {
+    embeddingPipeline = await pipeline(
+      'feature-extraction',
+      'Xenova/all-MiniLM-L6-v2',
+      {
+        quantized: true,  // Use quantized model (~43MB RAM)
+        progress_callback: (progress: any) => {
+          // Optional: Log model download progress
+          if (progress.status === 'progress') {
+            console.log(`[Embeddings] Downloading: ${(progress.progress * 100).toFixed(1)}%`);
+          }
+        },
+      }
+    );
+    pipelineReady = true;
+  }
+
+  return embeddingPipeline;
 }
 
-export async function embed(text: string): Promise<number[]> {
-  const client = getClient();
+/**
+ * Generate embedding for text using local model
+ * @param text - Input text to embed
+ * @returns Float32Array of 384 dimensions
+ */
+export async function embed(text: string): Promise<Float32Array> {
+  const pipe = await getPipeline();
   
-  const response = await client.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: text,
+  const output = await pipe(text, {
+    pooling: 'mean',
+    normalize: true,
   });
-  
-  return response.data[0].embedding;
+
+  // output is a Tensor with shape [1, 384]
+  // We need to extract the Float32Array
+  return Array.from(output.data) as Float32Array;
 }
 
-export function cosineSimilarity(a: number[], b: number[]): number {
-  const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
-  const magnitudeA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
-  const magnitudeB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
+/**
+ * Convert Float32Array to Buffer for SQLite BLOB storage
+ */
+export function embeddingToBuffer(embedding: Float32Array): Buffer {
+  return Buffer.from(embedding.buffer);
+}
+
+/**
+ * Convert Buffer from SQLite to Float32Array
+ */
+export function bufferToEmbedding(buffer: Buffer): Float32Array {
+  return new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+}
+
+/**
+ * Compute cosine similarity between two embeddings
+ * @param a - First embedding (Float32Array)
+ * @param b - Second embedding (Float32Array)
+ * @returns Similarity score between -1 and 1 (typically 0-1 for normalized embeddings)
+ */
+export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length) {
+    throw new Error(`Embedding dimension mismatch: ${a.length} vs ${b.length}`);
+  }
+
+  let dotProduct = 0;
+  let magnitudeA = 0;
+  let magnitudeB = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    magnitudeA += a[i] * a[i];
+    magnitudeB += b[i] * b[i];
+  }
+
+  magnitudeA = Math.sqrt(magnitudeA);
+  magnitudeB = Math.sqrt(magnitudeB);
+
+  if (magnitudeA === 0 || magnitudeB === 0) {
+    return 0;
+  }
+
   return dotProduct / (magnitudeA * magnitudeB);
 }
 
-// Fallback: transformers.js for local embeddings
-export async function embedLocal(text: string): Promise<number[]> {
-  // TODO: Implement with transformers.js
-  // const { pipeline } = await import('@xenova/transformers');
-  // const extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-  // const result = await extractor(text, { pooling: 'mean', normalize: true });
-  // return Array.from(result.data);
-  throw new Error('Local embeddings not implemented');
+/**
+ * Dispose the embedding pipeline to free memory
+ * Call this when memory pressure is detected
+ */
+export async function disposePipeline(): Promise<void> {
+  if (embeddingPipeline) {
+    await embeddingPipeline.dispose();
+    embeddingPipeline = null;
+    pipelineReady = false;
+  }
+}
+
+/**
+ * Check if pipeline is loaded
+ */
+export function isPipelineLoaded(): boolean {
+  return pipelineReady;
 }
 ```
 
 #### Step 4.2: Update Store for Vector Search
 
 Aggiorna `src/memory/store.ts`:
-- Salva embeddings come BLOB
+- Salva embeddings come BLOB (Float32Array → Buffer)
 - Funzione `vectorSearch(queryEmbedding, k): Memory[]`
 - SQLite non supporta vector nativamente → cosine similarity in-memory
 
 ```typescript
-async vectorSearch(queryEmbedding: number[], k: number): Promise<Memory[]> {
-  const allMemories = this.db.prepare('SELECT * FROM memories WHERE embedding IS NOT NULL').all() as Memory[];
-  
+import { embed, embeddingToBuffer, bufferToEmbedding, cosineSimilarity } from './embeddings';
+
+// In MemoryStore.add():
+async add(memory: Memory): Promise<void> {
+  // Generate embedding for the content
+  const embedding = await embed(memory.content || memory.summary);
+  const embeddingBlob = embeddingToBuffer(embedding);
+
+  // Insert with embedding
+  this.db.prepare(`
+    INSERT INTO memories (id, type, scope, content, summary, store, embedding, strength, frequency, confidence, created_at, updated_at, last_accessed, decay_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    memory.id,
+    memory.type,
+    memory.scope,
+    memory.content,
+    memory.summary,
+    memory.store,
+    embeddingBlob,  // BLOB storage
+    memory.strength,
+    memory.frequency,
+    memory.confidence,
+    memory.created_at,
+    memory.updated_at,
+    memory.last_accessed,
+    memory.decay_type
+  );
+}
+
+// Vector search with in-memory cosine similarity
+async vectorSearch(queryEmbedding: Float32Array, k: number): Promise<Memory[]> {
+  // Fetch all memories with embeddings
+  const allMemories = this.db.prepare('SELECT * FROM memories WHERE embedding IS NOT NULL').all() as any[];
+
+  // Compute similarity in-memory
   const scored = allMemories.map(mem => {
-    const memEmbedding = new Float32Array(mem.embedding);
+    const memEmbedding = bufferToEmbedding(mem.embedding as Buffer);
     return {
       memory: mem,
-      similarity: cosineSimilarity(queryEmbedding, Array.from(memEmbedding)),
+      similarity: cosineSimilarity(queryEmbedding, memEmbedding),
     };
   });
-  
+
+  // Sort by similarity (descending)
   scored.sort((a, b) => b.similarity - a.similarity);
-  
+
+  // Return top-k
   return scored.slice(0, k).map(s => s.memory);
 }
 ```
@@ -1068,24 +1194,52 @@ async vectorSearch(queryEmbedding: number[], k: number): Promise<Memory[]> {
 Aggiorna `src/memory/retrieval.ts`:
 
 ```typescript
+import { embed } from './embeddings';
+
 export async function getRelevantMemoriesContextual(
   store: MemoryStore,
   userPrompt: string,
   projectPath: string,
   k: number = 10
 ): Promise<Memory[]> {
-  // Embed user prompt
+  // Embed user prompt (lazy loads model on first call)
   const promptEmbedding = await embed(userPrompt);
   
-  // Vector search for top candidates
+  // Vector search for top candidates (fetch 2x to filter later)
   const candidates = await store.vectorSearch(promptEmbedding, k * 2);
   
-  // Filter by scope
+  // Filter by scope (user or matching project)
   return candidates
     .filter(m => m.scope === 'user' || m.scope === projectPath)
     .slice(0, k);
 }
 ```
+
+#### Step 4.4: Package.json Update
+
+Aggiungi la dipendenza per Transformers.js:
+
+```json
+{
+  "dependencies": {
+    "@huggingface/transformers": "^3.1.0"
+  }
+}
+```
+
+#### Optimization Notes
+
+**Memory Management**:
+- Model is lazy-loaded on first `embed()` call
+- Singleton pattern ensures only one pipeline instance
+- ~43MB RAM footprint when loaded (quantized model)
+- Use `disposePipeline()` if memory pressure detected
+
+**Performance**:
+- First embedding: ~2-3s (model loading)
+- Subsequent embeddings: ~50-100ms
+- Vector search: O(n) where n = total memories with embeddings
+- For 1000 memories, search takes ~10-20ms
 
 ---
 
@@ -1438,6 +1592,9 @@ rm ~/.true-memory/memory.db*
 - **FASE 1**: ✅ COMPLETATA (plugin funzionante con bun build + async extraction)
 - **FASE 2**: ✅ COMPLETATA (false positive prevention + classifier integration)
 - **FASE 3**: ✅ COMPLETATA (retrieval + injection già implementate)
-- **FASE 4**: ⏳ PRONDO DA IMPLEMENTARE (vector embeddings)
-- **Fase corrente**: FASE 4 - Vector Embeddings
-- **Prossimo step**: Step 4.1 - Embeddings module
+- **FASE 4**: ✅ COMPLETATA (vector embeddings)
+- **FASE 5**: ✅ COMPLETATA (intelligent decay)
+- **FASE 6**: ✅ COMPLETATA (background processing)
+- **FASE 7**: ✅ COMPLETATA (reconsolidation)
+- **Stato**: Plugin pronto per il rilascio. Tutte le fasi completate.
+- **Prossimo step**: Test finale in ambiente reale.

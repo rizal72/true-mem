@@ -62,19 +62,32 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | src/memory/classifier.ts | ✅ | Three-layer defense |
 | src/adapters/opencode/index.ts | ✅ | Full extraction + injection |
 | src/index.ts | ✅ | Entry point con fire-and-forget |
-| **Build** | ✅ | `dist/index.js` (63kb) - **BUN BUILD** |
+| **Build** | ✅ | `dist/index.js` (1.55MB) - **BUN BUILD** |
 | **TypeCheck** | ✅ | 0 errors |
 | **Runtime Test** | ✅ | **FUNZIONA** |
 | **Async Extraction** | ✅ | Fire-and-forget + 500ms debounce |
 | **False Positive Prevention** | ✅ | Three-layer defense |
+| **Vector Embeddings** | ✅ | Transformers.js (local) |
+| **Intelligent Decay** | ✅ | Only episodic, triggered on session start |
+| **Reconsolidation** | ✅ | Vector-based heuristic (Duplicate/Conflict/Complement) |
 
-### FASE 1-3 ✅ COMPLETATE
+### FASE 1-7 ✅ COMPLETATE
 
 Plugin funzionante con:
 - Caricamento senza crash (bun build)
-- Estrazione asincrona non-blocking
+- Estrazione asincrona non-blocking (ExtractionQueue)
 - Prevenzione falsi positivi (negative patterns + multi-keyword + threshold)
 - Retrieval e injection delle memorie
+- **Vector Embeddings**: Ricerca semantica top-k (Transformers.js)
+- **Intelligent Decay**: Decadimento solo per memorie episodiche
+- **Reconsolidation**: Gestione duplicati e conflitti via similarità vettoriale
+
+### FASE 6-7 ✅ COMPLETATE
+
+Stato attuale:
+- Implementata `ExtractionQueue` per elaborazione sequenziale in background.
+- Implementata logica di riconsolidazione per evitare duplicati e gestire conflitti.
+- Plugin pronto per il rilascio.
 
 ### 🟢 BUG RISOLTO: esbuild → bun build
 
