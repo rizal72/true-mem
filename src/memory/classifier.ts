@@ -11,24 +11,24 @@ import { matchesNegativePattern } from './negative-patterns.js';
 // Classification keywords for multi-keyword scoring
 const CLASSIFICATION_KEYWORDS: Record<string, { primary: string[]; boosters: string[] }> = {
   bugfix: {
-    primary: ['error', 'bug', 'crash', 'exception', 'fail', 'broken', 'issue', 'problem'],
-    boosters: ['fixed', 'resolved', 'patched', 'solved', 'corrected', 'repaired', 'debugged'],
+    primary: ['error', 'bug', 'crash', 'exception', 'fail', 'broken', 'issue', 'problem', 'errore', 'guasto', 'fallimento'],
+    boosters: ['fixed', 'resolved', 'patched', 'solved', 'corrected', 'repaired', 'debugged', 'risolto', 'corretto', 'sistemato', 'patchato'],
   },
   decision: {
-    primary: ['decided', 'chose', 'selected', 'picked', 'opted', 'went with'],
-    boosters: ['because', 'since', 'reason', 'rationale', 'due to', 'as'],
+    primary: ['decided', 'chose', 'selected', 'picked', 'opted', 'went with', 'deciso', 'scelto', 'selezionato'],
+    boosters: ['because', 'since', 'reason', 'rationale', 'due to', 'as', 'perché', 'poiché', 'motivo', 'ragione'],
   },
   learning: {
-    primary: ['learned', 'discovered', 'found out', 'realized', 'figured out'],
-    boosters: ['today', 'just', 'finally', 'interesting', 'surprising'],
+    primary: ['learned', 'discovered', 'found out', 'realized', 'figured out', 'imparato', 'scoperto', 'capito'],
+    boosters: ['today', 'just', 'finally', 'interesting', 'surprising', 'oggi', 'appena'],
   },
   constraint: {
-    primary: ["can't", 'cannot', 'must not', 'never', 'forbidden', 'prohibited', 'not allowed'],
-    boosters: ['always', 'require', 'mandatory', 'enforce', 'strict'],
+    primary: ["can't", 'cannot', 'must not', 'never', 'forbidden', 'prohibited', 'not allowed', 'non posso', 'vietato', 'proibito', 'obbligatorio'],
+    boosters: ['always', 'require', 'mandatory', 'enforce', 'strict', 'mai', 'necessario'],
   },
   preference: {
-    primary: ['prefer', 'like', 'want', 'favor', 'rather'],
-    boosters: ['better', 'best', 'instead', 'over', 'more than'],
+    primary: ['prefer', 'like', 'want', 'favor', 'rather', 'preferisco', 'mi piace', 'voglio', 'prediligo'],
+    boosters: ['better', 'best', 'instead', 'over', 'more than', 'meglio', 'ottimo', 'invece', 'rispetto a', 'sempre'],
   },
   procedural: {
     primary: ['step', 'workflow', 'process', 'procedure', 'instructions', 'guide'],
@@ -132,4 +132,74 @@ export function inferClassification(text: string): string | null {
   }
 
   return bestScore >= 0.4 ? bestClassification : null;
+}
+
+/**
+ * Classify content with explicit intent detection.
+ * If explicit_remember signal is present, isolate the sentence and classify it.
+ */
+export function classifyWithExplicitIntent(
+  text: string,
+  signals: any[]
+): { classification: string | null; confidence: number } {
+  // Check if explicit_remember signal is present
+  const hasExplicitRemember = signals.some(s => s.type === 'explicit_remember');
+
+  if (!hasExplicitRemember) {
+    // Fall back to normal classification
+    const classification = inferClassification(text);
+    const confidence = classification ? calculateClassificationScore(text, classification) : 0;
+    return { classification, confidence };
+  }
+
+  // Extract explicit remember marker patterns
+  const markerPatterns = [
+    /ricorda questo/gi,
+    /remember this/gi,
+    /ricorda/gi,
+    /remember/gi,
+    /tieni a mente/gi,
+    /keep in mind/gi,
+    /nota che/gi,
+    /note that/gi,
+  ];
+
+  // Find the sentence containing the explicit marker
+  const sentences = text.match(/[^.!?]*[.!?]/g) || [];
+  let targetSentence = '';
+
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (markerPatterns.some(pattern => pattern.test(trimmed))) {
+      targetSentence = trimmed;
+      break;
+    }
+  }
+
+  // If no sentence found with marker, classify entire text
+  const textToClassify = targetSentence || text;
+
+  // Score ONLY the target sentence for all classifications
+  let bestClassification: string | null = null;
+  let bestScore = 0;
+
+  for (const [classification] of Object.entries(CLASSIFICATION_KEYWORDS)) {
+    const score = calculateClassificationScore(textToClassify, classification);
+    if (score > bestScore) {
+      bestScore = score;
+      bestClassification = classification;
+    }
+  }
+
+  // Lower threshold for explicit remember (0.4 instead of 0.6)
+  if (bestScore >= 0.4 && bestClassification) {
+    // Boost confidence to at least 0.85 for explicit remember
+    const boostedConfidence = Math.max(0.85, bestScore);
+    return { classification: bestClassification, confidence: boostedConfidence };
+  }
+
+  // Fall back to normal classification if explicit sentence doesn't match
+  const fallbackClassification = inferClassification(text);
+  const fallbackConfidence = fallbackClassification ? calculateClassificationScore(text, fallbackClassification) : 0;
+  return { classification: fallbackClassification, confidence: fallbackConfidence };
 }

@@ -212,11 +212,11 @@ export class MemoryDatabase {
   }
 
   // Session Operations
-  createSession(project: string, metadata?: Record<string, unknown>, transcriptPath?: string): Session {
+  createSession(id: string, project: string, metadata?: Record<string, unknown>, transcriptPath?: string): Session {
     this.ensureInit();
 
     const session: Session = {
-      id: uuidv4(),
+      id,
       project,
       startedAt: new Date(),
       status: 'active',

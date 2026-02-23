@@ -2,12 +2,14 @@
  * True-Memory OpenCode Adapter
  */
 
+const BUILD_TIME = "2026-02-23T09:45:00.000Z";
+
 import type { PluginInput, Hooks, Event, Message, Part } from '../../types.js';
 import type { PsychMemConfig, MemoryUnit } from '../../types.js';
 import { DEFAULT_CONFIG } from '../../config.js';
 import { MemoryDatabase, createMemoryDatabase } from '../../storage/database.js';
 import { log } from '../../logger.js';
-import { shouldStoreMemory, inferClassification } from '../../memory/classifier.js';
+import { shouldStoreMemory, classifyWithExplicitIntent } from '../../memory/classifier.js';
 import { matchAllPatterns } from '../../memory/patterns.js';
 import { embed } from '../../memory/embeddings.js';
 import { getExtractionQueue } from '../../extraction/queue.js';
@@ -100,7 +102,7 @@ export async function createTrueMemoryPlugin(
 
   // Extract project name and create professional startup message
   const projectName = worktree.split(/[/\\]/).pop() || 'Unknown';
-  const startupMessage = `🧠 True-Memory: Plugin loaded successfully | Mode: Vector (Transformers.js) | Project: ${projectName}`;
+  const startupMessage = `🧠 True-Memory: Plugin loaded successfully | v2.0.1 [${BUILD_TIME}] | Mode: Vector (Transformers.js) | Project: ${projectName}`;
 
   // Log to file-based logger
   log(startupMessage);
@@ -225,7 +227,7 @@ async function handleSessionCreated(
   }
   
   // Create session in DB
-  state.db.createSession(state.worktree, { agentType: 'opencode' });
+  state.db.createSession(sessionId, state.worktree, { agentType: 'opencode' });
   
   // Inject memories
   const memories = await getRelevantMemories(state, state.config.opencode.maxSessionStartMemories);
@@ -273,54 +275,86 @@ async function processSessionIdle(
     return;
   }
 
+  // Check for injection markers as a final safety net before processing
+  const injectionMarkers = [
+    /## Relevant Memories from Previous Sessions/i,
+    /### User Preferences & Constraints/i,
+    /### .* Context/i,
+    /## Compaction Instructions/i,
+    /\[LTM\]/i,
+    /\[STM\]/i,
+  ];
+
+  const hasInjectedContent = injectionMarkers.some(marker => marker.test(conversationText));
+  if (hasInjectedContent) {
+    log(`WARNING: Conversation contains injection markers (safety check), extractConversationText should have filtered them out`);
+    // Don't skip extraction - let the filtered conversationText be processed
+  }
+
   // Extract memories using classifier
   log(`Processing ${newMessages.length} new messages`);
 
   // Get signals from patterns
   const signals = matchAllPatterns(conversationText);
 
+  let extractionAttempted = false;
+  let extractionSucceeded = false;
+
   if (signals.length > 0) {
-    // Calculate base signal score (average weight of matched signals)
-    const baseSignalScore = signals.reduce((sum, s) => sum + s.weight, 0) / signals.length;
+    extractionAttempted = true;
 
-    // Infer classification from text
-    const classification = inferClassification(conversationText);
+    try {
+      // Calculate base signal score (average weight of matched signals)
+      const baseSignalScore = signals.reduce((sum, s) => sum + s.weight, 0) / signals.length;
 
-    if (classification) {
-      // Apply three-layer defense
-      const result = shouldStoreMemory(conversationText, classification, baseSignalScore);
+      // Classify with explicit intent detection
+      const { classification, confidence } = classifyWithExplicitIntent(conversationText, signals);
 
-      if (result.store) {
-        // Determine scope
-        const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
-        const scope = userLevelClassifications.includes(classification) ? undefined : state.worktree;
+      if (classification) {
+        // Apply three-layer defense
+        const result = shouldStoreMemory(conversationText, classification, baseSignalScore);
 
-        // Generate embedding for the memory
-        const embedding = await embed(conversationText);
+        if (result.store) {
+          // Determine scope
+          const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
+          const scope = userLevelClassifications.includes(classification) ? undefined : state.worktree;
 
-        // Store memory
-        await state.db.createMemory(
-          'stm',
-          classification as any,
-          conversationText.slice(0, 500), // Summary from text
-          [],
-          {
-            sessionId: effectiveSessionId,
-            projectScope: scope,
-            importance: result.confidence,
-            confidence: result.confidence,
-            embedding,
-          }
-        );
+          // Generate embedding for the memory
+          const embedding = await embed(conversationText);
 
-        log(`Stored ${classification} memory (confidence: ${result.confidence.toFixed(2)})`);
-      } else {
-        log(`Skipped ${classification} memory: ${result.reason}`);
+          // Store memory
+          await state.db.createMemory(
+            'stm',
+            classification as any,
+            extractCleanSummary(conversationText), // Clean summary without prefixes
+            [],
+            {
+              sessionId: effectiveSessionId,
+              projectScope: scope,
+              importance: confidence, // Use confidence from classifyWithExplicitIntent
+              confidence: confidence,
+              embedding,
+            }
+          );
+
+          log(`Stored ${classification} memory (confidence: ${confidence.toFixed(2)})`);
+        } else {
+          log(`Skipped ${classification} memory: ${result.reason}`);
+        }
       }
+
+      extractionSucceeded = true;
+    } catch (error) {
+      log(`Extraction failed with critical error: ${error}`);
+      // Don't update watermark if extraction failed with critical error
+      return;
     }
   }
 
-  state.db.updateMessageWatermark(effectiveSessionId, messages.length);
+  // Only update watermark if extraction was attempted and succeeded, or if no extraction was needed
+  if (!extractionAttempted || extractionSucceeded) {
+    state.db.updateMessageWatermark(effectiveSessionId, messages.length);
+  }
 }
 
 async function handleSessionEnd(
@@ -396,15 +430,89 @@ async function handlePostToolUse(
 }
 
 // Helpers
+
+/**
+ * Extract a clean summary from conversation text.
+ * Removes "Human:" / "Assistant:" prefixes and trims to reasonable length.
+ */
+function extractCleanSummary(conversationText: string, maxLength: number = 500): string {
+  // Remove role prefixes
+  let cleaned = conversationText
+    .replace(/^(Human|Assistant):\s*/gm, '')
+    .replace(/\n+/g, ' ')
+    .trim();
+
+  // Remove any remaining injection markers (second line of defense)
+  const injectionMarkers = [
+    /## Relevant Memories from Previous Sessions/gi,
+    /### User Preferences & Constraints/gi,
+    /### .* Context/gi,
+    /## Compaction Instructions/gi,
+    /\[LTM\]/gi,
+    /\[STM\]/gi,
+  ];
+
+  for (const marker of injectionMarkers) {
+    cleaned = cleaned.replace(marker, '');
+  }
+
+  // Normalize whitespace after marker removal
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+  // Truncate if necessary, try to break at word boundaries
+  if (cleaned.length <= maxLength) {
+    return cleaned;
+  }
+
+  // Find last complete word within limit
+  const truncated = cleaned.slice(0, maxLength);
+  const lastSpace = truncated.lastIndexOf(' ');
+  if (lastSpace > maxLength * 0.8) {
+    return truncated.slice(0, lastSpace) + '...';
+  }
+  return truncated + '...';
+}
+
 function extractConversationText(messages: MessageContainer[]): string {
   const lines: string[] = [];
-  
+
+  // Regex patterns that indicate injected content (case-insensitive, should be filtered out)
+  const injectionMarkers = [
+    /## Relevant Memories from Previous Sessions/i,
+    /### User Preferences & Constraints/i,
+    /### .* Context/i,  // Matches "### ProjectName Context" pattern
+    /## Compaction Instructions/i,
+    /\[LTM\]/i,
+    /\[STM\]/i,
+  ];
+
+  // Regex patterns that indicate tool execution or results (should be filtered out)
+  const toolMarkers = [
+    /\[Tool:\s*\w+\]/i,
+    /^Tool Result:/i,
+    /^Tool Error:/i,
+  ];
+
   for (const msg of messages) {
     const role = msg.info.role === 'user' ? 'Human' : 'Assistant';
-    
+
     for (const part of msg.parts) {
       if (part.type === 'text' && 'text' in part) {
-        lines.push(`${role}: ${(part as { text: string }).text}`);
+        const text = (part as { text: string }).text;
+
+        // Skip parts that contain any injection marker (prevents re-extracting injected content)
+        const hasInjectionMarker = injectionMarkers.some(marker => marker.test(text));
+        if (hasInjectionMarker) {
+          continue; // Skip this part entirely
+        }
+
+        // Skip parts that look like tool execution or results
+        const hasToolMarker = toolMarkers.some(marker => marker.test(text));
+        if (hasToolMarker) {
+          continue; // Skip this part entirely
+        }
+
+        lines.push(`${role}: ${text}`);
       } else if (part.type === 'tool') {
         const toolPart = part as { tool?: string; state?: { status?: string; output?: string; error?: string } };
         if (toolPart.state?.status === 'completed' || toolPart.state?.status === 'error') {
@@ -415,7 +523,7 @@ function extractConversationText(messages: MessageContainer[]): string {
       }
     }
   }
-  
+
   return lines.join('\n');
 }
 

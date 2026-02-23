@@ -514,6 +514,7 @@ export const CLASSIFICATION_PATTERNS = {
     latin: [
       'prefer', 'like', 'want', 'don\'t like', 'hate', 'avoid',
       'I\'d rather', 'better if', 'always',
+      'preferisco', 'mi piace', 'voglio',
     ],
     nonLatin: [
       '好き', '嫌い', '好み',

@@ -42,7 +42,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 
 ---
 
-## ✅ CURRENT STATUS - FASE 1-3 COMPLETATE
+## ✅ CURRENT STATUS - FASE 1-7 COMPLETATE + VERIFICA IN CORSO
 
 **Data ultimo aggiornamento**: 23/02/2026
 
@@ -50,26 +50,29 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 
 | Componente | Status | Note |
 |------------|--------|------|
-| package.json | ✅ | Deps: @opencode-ai/plugin, @opencode-ai/sdk, uuid, bun-types |
+| package.json | ✅ | Deps: @opencode-ai/plugin, @opencode-ai/sdk, uuid, @huggingface/transformers, bun-types |
 | tsconfig.json | ✅ | ESM, Node 22+, strict |
 | src/logger.ts | ✅ | File-based, rotate 10MB |
 | src/config.ts | ✅ | Default config completo |
 | src/types.ts | ✅ | Types + SDK re-exports |
 | src/storage/sqlite-adapter.ts | ✅ | bun:sqlite + node:sqlite |
 | src/storage/database.ts | ✅ | MemoryDatabase class |
-| src/memory/patterns.ts | ✅ | 659 lines, 15 languages |
+| src/memory/patterns.ts | ✅ | 670 lines, 15 languages |
 | src/memory/negative-patterns.ts | ✅ | False positive prevention |
-| src/memory/classifier.ts | ✅ | Three-layer defense |
-| src/adapters/opencode/index.ts | ✅ | Full extraction + injection |
+| src/memory/classifier.ts | ✅ | Three-layer defense + explicit intent |
+| src/memory/embeddings.ts | ✅ | Transformers.js, cosine similarity, eval import trick |
+| src/memory/reconsolidate.ts | ✅ | Vector-based conflict resolution |
+| src/extraction/queue.ts | ✅ | Fire-and-forget extraction queue |
+| src/adapters/opencode/index.ts | ✅ | Full extraction + injection + memory echo prevention |
 | src/index.ts | ✅ | Entry point con fire-and-forget |
-| **Build** | ✅ | `dist/index.js` (1.55MB) - **BUN BUILD** |
+| **Build** | ✅ | `dist/index.js` (~81KB) - **BUN BUILD (Lean bundle via eval import)** |
 | **TypeCheck** | ✅ | 0 errors |
 | **Runtime Test** | ✅ | **FUNZIONA** |
 | **Async Extraction** | ✅ | Fire-and-forget + 500ms debounce |
-| **False Positive Prevention** | ✅ | Three-layer defense |
-| **Vector Embeddings** | ✅ | Transformers.js (local) |
+| **False Positive Prevention** | ✅ | Three-layer defense + explicit intent isolation |
+| **Vector Embeddings** | ✅ | Working (Transformers.js local, @huggingface/transformers) |
 | **Intelligent Decay** | ✅ | Only episodic, triggered on session start |
-| **Reconsolidation** | ✅ | Vector-based heuristic (Duplicate/Conflict/Complement) |
+| **Reconsolidation** | ✅ | Vector-based heuristic (similarity thresholds, not LLM) |
 
 ### FASE 1-7 ✅ COMPLETATE
 
@@ -126,6 +129,76 @@ head -1 dist/index.js
 
 Vedi `PLAN.md` per codice dettagliato.
 
+### 🟢 FIX: Memory Echo Prevention
+
+**Problema**: Il sistema estraeva il proprio contenuto iniettato ("## Relevant Memories...") creando un loop infinito di feedback.
+
+**Soluzione**: Filtering in `extractConversationText` per saltare le parti contenenti marker di iniezione:
+- Rileva pattern `## Relevant Memories` e marker correlati
+- Salta queste parti durante l'estrazione
+- Previene l'estrazione di memorie da memorie
+
+Vedi `PLAN.md` per codice dettagliato.
+
+### 🟢 FIX: Transformers.js Bundling
+
+**Problema**: `bun build` bundlea le import statiche di `@huggingface/transformers`, causando l'errore `pipeline is not a function` a runtime. Il modello non viene caricato correttamente perché `bun build` cerca di ottimizzare le import statiche.
+
+**Soluzione**: Usare `eval('import(...)')` per import dinamiche completamente in `src/memory/embeddings.ts`:
+- Tutte le import di `@huggingface/transformers` avvengono tramite `eval('import(...)')`
+- Questo impedisce a `bun build` di bundleare o trasformare il codice di Transformers.js
+- Il modello viene caricato correttamente a runtime (~43MB RAM, quantized)
+- Funziona sia su Bun che su Node 22+ tramite fallback
+
+**Cosa cambia nel codice**:
+```typescript
+// Instead of:
+// import { pipeline, env } from '@huggingface/transformers';
+
+// Use:
+const { pipeline, env } = await eval('import("@huggingface/transformers")');
+```
+
+Vedi `PLAN.md` per codice dettagliato.
+
+### 🟢 FIX: Memory Echo Prevention (Robust)
+
+**Problema**: Il filtering precedente di `extractConversationText` usava regex globali (`/.../g`) in un loop con `test()`, che causa comportamenti inaffidabili a causa di `lastIndex`. Inoltre, `processSessionIdle` saltava completamente l'estrazione se trovava un marker di iniezione.
+
+**Soluzione**:
+1. Rimuovere il flag `g` da tutti i regex in `injectionMarkers`
+2. In `processSessionIdle`, invece di saltare l'intera estrazione, loggare un warning e procedere con il `conversationText` filtrato
+3. Il filtering è ora robusto e l'estrazione continua anche se sono presenti marker di iniezione nel testo
+
+Vedi `PLAN.md` per codice dettagliato.
+
+### 🟢 FIX: Explicit Intent Classification
+
+**Problema**: Frasi esplicite come "Ricorda questo: preferisco sempre TypeScript a JavaScript" venivano classificate come `constraint` o `bugfix` a causa di keyword contestuali come "sempre" che venivano interpretate nel contesto globale.
+
+**Soluzione**: Implementare `classifyWithExplicitIntent` in `src/memory/classifier.ts`:
+- Se è presente un segnale `explicit_remember` ("Ricorda questo", "Remember this", ecc.)
+- Isolare la frase dopo il marker (tramite regex e split per delimitatori)
+- Classificare SOLO la frase isolata, non l'intero testo
+- Rimuovere il contesto contaminante (es. altri messaggi nella conversazione)
+- Questo garantisce che la classificazione rifletta l'intento esplicito dell'utente
+
+Vedi `PLAN.md` per codice dettagliato.
+
+### 🟢 FIX: Multilingual Classification
+
+**Problema**: Il classificatore non aveva keyword italiane, quindi le frasi in italiano non venivano classificate correttamente.
+
+**Soluzione**: Aggiungere keyword italiane a tutte le categorie in `CLASSIFICATION_KEYWORDS`:
+- `constraint`: 'non posso', 'proibito', 'vietato', 'mai', 'evita'
+- `preference`: 'preferisco', 'piace', 'non mi piace', 'meglio'
+- `decision`: 'deciso', 'scelto', 'abbiamo deciso'
+- `learning`: 'imparato', 'scoperto', 'ho capito'
+- `bugfix`: 'errore', 'bug', 'risolto', 'fixato'
+- `procedural': 'passo', 'processo', 'workflow'
+
+Vedi `PLAN.md` per codice dettagliato.
+
 ### Dipendenze Corrette (package.json)
 
 ```json
@@ -133,6 +206,7 @@ Vedi `PLAN.md` per codice dettagliato.
   "dependencies": {
     "@opencode-ai/plugin": "^1.2.6",
     "@opencode-ai/sdk": "^1.2.6",
+    "@huggingface/transformers": "^3.1.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
@@ -208,8 +282,9 @@ export async function createDatabase(dbPath: string): Promise<SqliteDatabase> {
 1. **Decay Intelligente** - Decay solo per `episodic`, le altre permangono
 2. **Vector Embeddings** - Cosine similarity invece di Jaccard
 3. **Retrieval Contestuale** - Top-k invece di injection globale
+   - **Nota**: Intra-session retrieval è intenzionalmente limitato al session start/first message per evitare context bloat e oscillazioni semantiche. Cross-session continuity è l'obiettivo principale.
 4. **Estrazione Asincrona** - Fire-and-forget per non bloccare l'UI
-5. **Reconsolidation LLM** - Valutazione conflitti via LLM
+5. **Reconsolidation** - Valutazione conflitti via similarità vettoriale (non LLM)
 6. **False Positive Prevention** - Three-layer defense (negative patterns + multi-keyword + threshold)
 
 Vedi `PLAN.md` per i dettagli implementativi.
@@ -221,20 +296,26 @@ Vedi `PLAN.md` per i dettagli implementativi.
 ```
 true-memory/
 ├── src/
-│   ├── index.ts                 # Entry point ⚠️ DA FIXARE
+│   ├── index.ts                 # Entry point with fire-and-forget
 │   ├── types.ts                 # Type definitions + SDK re-exports
 │   ├── config.ts                # Default config
 │   ├── logger.ts                # File-based logger
 │   ├── storage/
-│   │   ├── sqlite-adapter.ts    # bun:sqlite / node:sqlite
+│   │   ├── sqlite-adapter.ts    # bun:sqlite + node:sqlite
 │   │   └── database.ts          # MemoryDatabase class
 │   ├── memory/
-│   │   └── patterns.ts          # Multilingual patterns (659 lines)
+│   │   ├── patterns.ts          # Multilingual patterns (670 lines)
+│   │   ├── negative-patterns.ts # False positive prevention
+│   │   ├── classifier.ts        # Three-layer defense
+│   │   ├── embeddings.ts        # Transformers.js, cosine similarity
+│   │   └── reconsolidate.ts     # Vector-based conflict resolution
+│   ├── extraction/
+│   │   └── queue.ts             # Fire-and-forget extraction queue
 │   └── adapters/
 │       └── opencode/
-│           └── index.ts         # OpenCode adapter
+│           └── index.ts         # Full extraction + injection
 ├── dist/
-│   └── index.js                 # Bundle (28.3kb)
+│   └── index.js                 # Bundle (1.6M)
 ├── package.json
 ├── tsconfig.json
 ├── .gitignore
@@ -248,14 +329,18 @@ true-memory/
 
 | Tipo | Decay | Store Default | Scope | Esempio |
 |------|-------|---------------|-------|---------|
-| **constraint** | Mai | STM | User | "Never use `var`" |
-| **preference** | Mai | STM | User | "Prefers functional style" |
-| **learning** | Mai | LTM (auto) | User | "Learned bun:sqlite API" |
-| **procedural** | Mai | STM | User | "Run tests before commit" |
-| **decision** | Mai | LTM (auto) | Project | "Decided SQLite over Postgres" |
-| **bugfix** | Mai | LTM (auto) | Project | "Fixed null pointer in auth" |
-| **semantic** | Mai | STM | Project | "API uses REST, not GraphQL" |
-| **episodic** | Sì (7gg) | STM | Project | "Yesterday we refactored auth" |
+| **constraint** | Mai | STM | User (Global) | "Never use `var`" |
+| **preference** | Mai | STM | User (Global) | "Prefers functional style" |
+| **learning** | Mai | LTM (auto) | User (Global) | "Learned bun:sqlite API" |
+| **procedural** | Mai | STM | User (Global) | "Run tests before commit" |
+| **decision** | Mai | LTM (auto) | Project (Local) | "Decided SQLite over Postgres" |
+| **bugfix** | Mai | LTM (auto) | Project (Local) | "Fixed null pointer in auth" |
+| **semantic** | Mai | STM | Project (Local) | "API uses REST, not GraphQL" |
+| **episodic** | Sì (7gg) | STM | Project (Local) | "Yesterday we refactored auth" |
+
+**Dual-Scope Memory Logic**:
+- User-scoped memories (constraint, preference, learning, procedural) are stored with `NULL project_scope` and are injected across **all projects**.
+- Project-scoped memories (decision, bugfix, semantic, episodic) are tied to the **specific worktree path** and only injected when the current project matches.
 
 ---
 
@@ -294,6 +379,10 @@ grep -i "error" ~/.true-memory/plugin-debug.log
 
 **Commit attuali**: 6 locali (non pushati)
 
+### Best Practice: Background Tasks
+
+Quando si lancia un task in background (`background_task`), NON controllare lo stato ogni 5 secondi. Attendi la notifica automatica di completamento. Questo evita spreco di token e rumore nei log.
+
 ---
 
 ## Risorse
@@ -304,10 +393,23 @@ grep -i "error" ~/.true-memory/plugin-debug.log
 
 ---
 
+## Confronto Tecnico: True-Memory vs PsychMem
+
+**Premessa**: PsychMem ha aperto la strada alla memoria persistente per AI coding assistant. True-Memory è un'evoluzione architetturale basata sull'esperienza pratica.
+
+**5 Aree di Miglioramento:**
+- **Stabilità**: Init lazy e fire-and-forget per evitare blocchi all'avvio di OpenCode.
+- **Build**: Bundle Bun-native stabile invece di esbuild (che causava crash).
+- **Precisione**: Sistema di difesa a tre livelli (negative patterns + multi-keyword + threshold) per ridurre i falsi positivi.
+- **Retrieval**: Vector embeddings (Transformers.js) e top-k contestuale invece di Jaccard similarity e iniezione globale.
+- **Decay**: Decadimento intelligente solo per memorie episodiche; le preferenze e le decisioni rimangono permanenti.
+
+---
+
 ## Notes
 
 - **Creato**: 22/02/2026
 - **Ispirato da**: [PsychMem](https://github.com/muratg98/psychmem) v1.0.5
 - **Miglioramenti**: Basati su feedback Reddit r/opencodeCLI
-- **Bug risolto**: esbuild → bun build fix
-- **Stato**: FASE 1 completata, plugin funzionante
+- **Bug risolti**: esbuild → bun build fix, Transformers.js bundling, Memory Echo prevention, Explicit intent classification, Multilingual support
+- **Stato**: FASE 1-7 completate, plugin funzionante con vector embeddings attivi

@@ -304,6 +304,8 @@ maxMemoriesPerStop: 7      // Miller's 7±2
 | **User-Level** | Sempre | Constraints, preferences, learnings, procedural |
 | **Project-Level** | Solo se matching project | Decisions, bugfixes, semantic, episodic |
 
+**Retrieval Logic**: Retrieval uses an OR condition: `(project_scope IS NULL OR project_scope = current_project)`
+
 ### Contextual Retrieval (Miglioramento #3)
 
 **PsychMem**: Inietta TUTTE le memorie user-level o project-level → bloat context.
@@ -1469,6 +1471,75 @@ export async function handleReconsolidation(
 
 ---
 
+## Maintenance & Fixes
+
+### 🟢 FIX: Memory Echo Prevention
+
+**Problema**: Il sistema estraeva il proprio contenuto iniettato ("## Relevant Memories...") creando un loop infinito di feedback.
+
+**Root cause**: Quando il plugin inietta memorie nel context, queste diventano parte della conversazione. L'estrattore successivo rileva il contenuto iniettato come testo da memorizzare, creando un loop.
+
+**Soluzione**: Filtering in `extractConversationText` per saltare le parti contenenti marker di iniezione:
+
+```typescript
+export function extractConversationText(messages: Message[]): string {
+  const lines: string[] = [];
+  
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type === 'text') {
+        const text = part.content;
+        
+        // Skip if contains injection markers (memory echo prevention)
+        if (text.includes('## Relevant Memories') ||
+            text.includes('# True-Memory Context') ||
+            text.includes('[LTM]') ||
+            text.includes('[STM]')) {
+          continue;
+        }
+        
+        lines.push(`${message.role}: ${text}`);
+      }
+    }
+  }
+  
+  return lines.join('\n\n');
+}
+```
+
+**Pattern rilevati**:
+- `## Relevant Memories`
+- `# True-Memory Context`
+- `[LTM]`, `[STM]` (marker di tipo memoria)
+- Altri marker di iniezione
+
+**Vantaggi**:
+- Previene loop infiniti di feedback
+- Mantiene pulita la base dati memorie
+- Evita sovrapposizioni semantiche
+
+### 🟢 FIX: Clean Summary
+
+**Problema**: I riassunti memorizzati includevano i prefissi "Human:" e "Assistant:", rendendo il contenuto meno pulito.
+
+**Soluzione**: Helper `extractCleanSummary` per rimuovere i prefissi di ruolo:
+
+```typescript
+function extractCleanSummary(text: string): string {
+  // Remove role prefixes if present
+  return text
+    .replace(/^(Human|Assistant|User):\s*/gi, '')
+    .trim();
+}
+```
+
+**Vantaggi**:
+- Memorie più pulite e concise
+- Migliore leggibilità durante l'iniezione
+- Riduce rumore nel contesto
+
+---
+
 ## Priorità
 
 | Priorità | Fase | Descrizione |
@@ -1597,4 +1668,158 @@ rm ~/.true-memory/memory.db*
 - **FASE 6**: ✅ COMPLETATA (background processing)
 - **FASE 7**: ✅ COMPLETATA (reconsolidation)
 - **Stato**: Plugin pronto per il rilascio. Tutte le fasi completate.
-- **Prossimo step**: Test finale in ambiente reale.
+
+---
+
+## Post-Implementation Fixes
+
+### FIX: Transformers.js Bundling (eval import trick)
+
+**Problema**: `bun build` bundlea le import statiche di `@huggingface/transformers`, causando l'errore `pipeline is not a function` a runtime.
+
+**Soluzione**: Usare `eval('import(...)')` per import completamente dinamiche in `src/memory/embeddings.ts`:
+
+```typescript
+// All imports from @huggingface/transformers must use eval
+const { pipeline, env } = await eval('import("@huggingface/transformers")');
+```
+
+Questo impedisce a `bun build` di:
+- Bundleare il codice di Transformers.js
+- Ottimizzare le import statiche
+- Modificare le dipendenze dinamiche
+
+Il modello viene caricato correttamente a runtime:
+- ~43MB RAM (quantized)
+- Funziona su Bun e Node 22+ tramite fallback
+- Lazy load (solo al primo `embed()` call)
+
+### FIX: Memory Echo Prevention (Robust)
+
+**Problema**: Il sistema estraeva il proprio contenuto iniettato ("## Relevant Memories...") creando un loop infinito di feedback.
+
+**Soluzione**: Regex-based filtering in `src/adapters/opencode/index.ts`:
+
+1. **Definizione marker di iniezione** ( senza flag `g`):
+```typescript
+const injectionMarkers = [
+  /## Relevant Memories/i,
+  /# True-Memory Context/i,
+  /\[(LTM|STM)\]/i,
+  /## (Constraint|Preference|Learning|Decision|Bugfix|Semantic|Episodic)/i,
+];
+```
+
+2. **Filtering in `extractConversationText`**:
+```typescript
+for (const part of message.parts) {
+  if (part.type === 'text') {
+    const text = part.content;
+
+    // Skip if contains injection markers (no global flag!)
+    const hasInjectionMarker = injectionMarkers.some(marker => marker.test(text));
+    if (hasInjectionMarker) {
+      continue;
+    }
+
+    lines.push(`${message.role}: ${text}`);
+  }
+}
+```
+
+3. **Safety check in `processSessionIdle`**:
+```typescript
+const hasMarker = injectionMarkers.some(marker => marker.test(conversationText));
+if (hasMarker) {
+  logger.warn('Memory Echo detected, using filtered text');
+  // Proceed with filtered text, don't skip entire extraction
+}
+```
+
+### FIX: Explicit Intent Classification
+
+**Problema**: Frasi esplicite come "Ricorda questo: preferisco sempre TypeScript a JavaScript" venivano classificate come `constraint` o `bugfix` a causa di keyword contestuali.
+
+**Soluzione**: Implementare `classifyWithExplicitIntent` in `src/memory/classifier.ts`:
+
+```typescript
+function classifyWithExplicitIntent(
+  text: string,
+  signals: ImportanceSignal[]
+): { classification: string | null; confidence: number } {
+  // Check for explicit remember signal
+  const explicitSignal = signals.find(s => s.type === 'explicit_remember');
+
+  if (!explicitSignal) {
+    return classifyNormal(text, signals);
+  }
+
+  // Isolate the sentence after the marker
+  const match = text.match(/(?:Ricorda questo|Remember this|Non dimenticare)[:：]\s*(.+?)(?:[.。]|\n|$)/i);
+  if (!match) {
+    return classifyNormal(text, signals);
+  }
+
+  const isolatedSentence = match[1].trim();
+
+  // Classify ONLY the isolated sentence
+  const classification = classifyByPatterns(isolatedSentence);
+
+  if (classification) {
+    return { classification, confidence: 0.9 };
+  }
+
+  return { classification: 'preference', confidence: 0.8 }; // Default for explicit remember
+}
+```
+
+### FIX: Multilingual Classification
+
+**Problema**: Il classificatore non aveva keyword italiane, quindi le frasi in italiano non venivano classificate correttamente.
+
+**Soluzione**: Aggiungere keyword italiane a `CLASSIFICATION_KEYWORDS`:
+
+```typescript
+const CLASSIFICATION_KEYWORDS = {
+  constraint: {
+    primary: ['cannot', 'can\'t', 'forbidden', 'prohibited', 'mai', 'non posso', 'proibito', 'vietato', 'evita'],
+    boosters: ['always', 'never', 'sempre'],
+  },
+  preference: {
+    primary: ['prefer', 'like', 'hate', 'preferisco', 'piace', 'non mi piace', 'meglio'],
+    boosters: ['always', 'usually', 'sempre', 'di solito'],
+  },
+  decision: {
+    primary: ['decided', 'chose', 'selected', 'picked', 'deciso', 'scelto', 'abbiamo deciso'],
+    boosters: ['because', 'since', 'reason', 'rationale', 'perché', 'motivo'],
+  },
+  learning: {
+    primary: ['learned', 'discovered', 'found out', 'realized', 'imparato', 'scoperto', 'ho capito'],
+    boosters: ['today', 'just', 'finally', 'oggi', 'proprio ora'],
+  },
+  bugfix: {
+    primary: ['error', 'bug', 'crash', 'exception', 'fail', 'broken', 'errore', 'bug', 'fallito', 'rotto'],
+    boosters: ['fixed', 'resolved', 'patched', 'solved', 'corrected', 'risolto', 'fixato', 'corretto'],
+  },
+  procedural: {
+    primary: ['step', 'workflow', 'process', 'procedure', 'passo', 'processo', 'procedura'],
+    boosters: ['first', 'then', 'finally', 'prima', 'poi', 'infine'],
+  },
+};
+```
+
+---
+
+## Next Steps
+
+1. **Final verification of Italian preference extraction**:
+   - Testare la frase: "Ricorda questo: preferisco sempre TypeScript a JavaScript"
+   - Verificare che venga classificata come `preference` (non `constraint` o `bugfix`)
+   - Verificare che l'embedding venga generato correttamente
+   - Verificare l'iniezione nella nuova sessione
+
+2. **Push to remote repository**:
+   - Verificare che tutti i test passino
+   - Commit locale finalizzato
+   - Push su GitHub (solo se testato e funzionante)
+

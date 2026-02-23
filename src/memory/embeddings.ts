@@ -3,7 +3,6 @@
  * Vector embeddings using Transformers.js (local, private, free)
  */
 
-import { pipeline, type Pipeline } from '@huggingface/transformers';
 import { log } from '../logger';
 
 // =============================================================================
@@ -48,11 +47,26 @@ class EmbeddingPipeline {
       try {
         log('Embeddings: Loading model Xenova/all-MiniLM-L6-v2...');
 
+        // Use eval for dynamic import to bypass bun build's static analysis and name mangling
+        const transformers = await eval('import("@huggingface/transformers")');
+        log('Embeddings: Transformers keys:', Object.keys(transformers).slice(0, 20));
+
+        const pipeline = transformers.pipeline;
+        const env = transformers.env;
+
+        if (!pipeline) {
+          log('Embeddings: ERROR - pipeline not found in transformers object');
+          throw new Error('pipeline function not found in transformers module');
+        }
+        log('Embeddings: pipeline found in transformers object');
+
+        log('Embeddings: env present:', !!env);
+
         this.pipeline = await pipeline(
           'feature-extraction',
           'Xenova/all-MiniLM-L6-v2',
           {
-            progress_callback: (progress) => {
+            progress_callback: (progress: any) => {
               if (progress.status === 'progress') {
                 const percent = progress.progress ? Math.round(progress.progress * 100) : 0;
                 if (percent % 20 === 0) { // Log every 20%
