@@ -654,6 +654,17 @@ export function classifyByPatterns(text: string): string | null {
       }
     }
   }
-  
+
   return null;
+}
+
+// =============================================================================
+// Classification Helper - Export for use with classifier
+// =============================================================================
+
+/**
+ * Get all classification types supported by patterns
+ */
+export function getSupportedClassifications(): string[] {
+  return ['bugfix', 'learning', 'decision', 'constraint', 'preference', 'procedural'];
 }
