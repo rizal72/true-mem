@@ -59,8 +59,11 @@ async function lazyInit(): Promise<Hooks> {
 }
 
 const TrueMemory: Plugin = async (ctx) => {
+  console.log('🧠 True-Memory: Plugin loading...');
   // Store ctx for lazy init
   state.ctx = ctx;
+
+  log('True-Memory: Plugin registered (lazy init mode)');
 
   // Return hooks IMMEDIATELY - no await!
   // Real init happens lazily on first hook call

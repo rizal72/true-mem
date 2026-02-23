@@ -95,9 +95,36 @@ export async function createTrueMemoryPlugin(
     worktree,
     client: ctx.client,
   };
-  
+
   log(`True-Memory initialized — worktree=${worktree}`);
-  
+
+  // Extract project name and create professional startup message
+  const projectName = worktree.split(/[/\\]/).pop() || 'Unknown';
+  const startupMessage = `🧠 True-Memory: Plugin loaded successfully | Mode: Vector (Transformers.js) | Project: ${projectName}`;
+
+  // Log to file-based logger
+  log(startupMessage);
+
+  // Log to OpenCode TUI (with error handling)
+  try {
+    const app = ctx.client?.app;
+    if (app && typeof app.log === 'function') {
+      // PsychMem-style body structure
+      (app.log as any)({
+        body: {
+          service: 'true-memory',
+          level: 'info',
+          message: startupMessage,
+        },
+      });
+    }
+  } catch (error) {
+    // Silently ignore if ctx.client.app.log is unavailable or fails
+  }
+
+  // Log to terminal for visibility
+  console.log(startupMessage);
+
   return {
     event: async ({ event }) => {
       // Skip noisy events

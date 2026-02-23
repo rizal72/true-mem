@@ -47,6 +47,7 @@ export class MemoryDatabase {
   private config: PsychMemConfig;
   private initialized: boolean = false;
   private _inTransaction: boolean = false;
+  private static readonly SCHEMA_VERSION = 2;
 
   constructor(config: Partial<PsychMemConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -188,28 +189,15 @@ export class MemoryDatabase {
       for (const migration of migrations) {
         if (migration.version > currentVersion) {
           log(`Applying migration ${migration.version}: ${migration.description}`);
-
-          // Special handling for migration 2 (embedding column) to handle existing databases
-          if (migration.version === 2) {
-            // Check if embedding column already exists
-            const columnExists = this.columnExists('memory_units', 'embedding');
-            if (columnExists) {
-              log(`Migration ${migration.version} skipped: embedding column already exists`);
-            } else {
-              this.db.exec(migration.sql);
-              log(`Migration ${migration.version} applied successfully`);
-            }
-          } else {
-            this.db.exec(migration.sql);
-            log(`Migration ${migration.version} applied successfully`);
-          }
-
-          // Record migration
-          this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
-            migration.version,
-            new Date().toISOString()
-          );
+          this.db.exec(migration.sql);
+          log(`Migration ${migration.version} applied successfully`);
         }
+
+        // Record migration
+        this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
+          migration.version,
+          new Date().toISOString()
+        );
       }
 
       // Commit transaction
@@ -221,16 +209,6 @@ export class MemoryDatabase {
       log('Schema initialization failed, transaction rolled back', error);
       throw error;
     }
-  }
-
-  /**
-   * Check if a column exists in a table
-   */
-  private columnExists(tableName: string, columnName: string): boolean {
-    const row = this.db.prepare(
-      "SELECT 1 FROM pragma_table_info(?) WHERE name = ?"
-    ).get(tableName, columnName) as { '1': number } | undefined;
-    return row !== undefined;
   }
 
   // Session Operations
