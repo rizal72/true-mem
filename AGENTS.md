@@ -42,9 +42,9 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 
 ---
 
-## ✅ CURRENT STATUS - FASE 1 COMPLETATA
+## ✅ CURRENT STATUS - FASE 1 + ASYNC EXTRACTION
 
-**Data ultimo aggiornamento**: 22/02/2026
+**Data ultimo aggiornamento**: 23/02/2026
 
 ### Stato Implementazione
 
@@ -58,11 +58,16 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | src/storage/sqlite-adapter.ts | ✅ | bun:sqlite + node:sqlite |
 | src/storage/database.ts | ✅ | MemoryDatabase class |
 | src/memory/patterns.ts | ✅ | 659 lines, 15 languages |
-| src/adapters/opencode/index.ts | ✅ | Adapter con hooks |
-| src/index.ts | ✅ | Entry point con lazy init |
-| **Build** | ✅ | `dist/index.js` (33kb) - **BUN BUILD** |
+| src/adapters/opencode/index.ts | ✅ | Adapter con hooks + debounce |
+| src/index.ts | ✅ | Entry point con fire-and-forget |
+| **Build** | ✅ | `dist/index.js` (34kb) - **BUN BUILD** |
 | **TypeCheck** | ✅ | 0 errors |
 | **Runtime Test** | ✅ | **FUNZIONA** |
+| **Async Extraction** | ✅ | Fire-and-forget + 500ms debounce |
+
+### FASE 1 ✅ COMPLETATA
+
+Plugin funzionante che carica senza crashare, con estrazione asincrona che non blocca l'UI.
 
 ### 🟢 BUG RISOLTO: esbuild → bun build
 
@@ -88,6 +93,18 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 head -1 dist/index.js
 # → // @bun
 ```
+
+### 🟢 FIX: Async Extraction (non-blocking UI)
+
+**Problema**: PsychMem bloccava l'UI durante estrazione (ESC lento, progress bar continuava).
+
+**Soluzione**: Fire-and-forget + debounce:
+- `event` hook: `.then().catch()` invece di `await`
+- `message.updated`: debounce 500ms
+- `session.idle`: `queueMicrotask()`
+- Solo `experimental.session.compacting` mantiene `await`
+
+Vedi `PLAN.md` per codice dettagliato.
 
 ### Dipendenze Corrette (package.json)
 
