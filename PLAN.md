@@ -1436,6 +1436,8 @@ rm ~/.true-memory/memory.db*
 - **Creato**: 22/02/2026
 - **Aggiornato**: 23/02/2026
 - **FASE 1**: ✅ COMPLETATA (plugin funzionante con bun build + async extraction)
-- **FASE 2**: ⏳ PRONTO DA IMPLEMENTARE
-- **Fase corrente**: FASE 2 - Memory Extraction
-- **Prossimo step**: Step 2.1 - Pattern matching multilingua
+- **FASE 2**: ✅ COMPLETATA (false positive prevention + classifier integration)
+- **FASE 3**: ✅ COMPLETATA (retrieval + injection già implementate)
+- **FASE 4**: ⏳ PRONDO DA IMPLEMENTARE (vector embeddings)
+- **Fase corrente**: FASE 4 - Vector Embeddings
+- **Prossimo step**: Step 4.1 - Embeddings module

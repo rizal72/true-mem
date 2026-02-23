@@ -42,7 +42,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 
 ---
 
-## ✅ CURRENT STATUS - FASE 1 + ASYNC EXTRACTION
+## ✅ CURRENT STATUS - FASE 1-3 COMPLETATE
 
 **Data ultimo aggiornamento**: 23/02/2026
 
@@ -58,16 +58,23 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | src/storage/sqlite-adapter.ts | ✅ | bun:sqlite + node:sqlite |
 | src/storage/database.ts | ✅ | MemoryDatabase class |
 | src/memory/patterns.ts | ✅ | 659 lines, 15 languages |
-| src/adapters/opencode/index.ts | ✅ | Adapter con hooks + debounce |
+| src/memory/negative-patterns.ts | ✅ | False positive prevention |
+| src/memory/classifier.ts | ✅ | Three-layer defense |
+| src/adapters/opencode/index.ts | ✅ | Full extraction + injection |
 | src/index.ts | ✅ | Entry point con fire-and-forget |
-| **Build** | ✅ | `dist/index.js` (34kb) - **BUN BUILD** |
+| **Build** | ✅ | `dist/index.js` (63kb) - **BUN BUILD** |
 | **TypeCheck** | ✅ | 0 errors |
 | **Runtime Test** | ✅ | **FUNZIONA** |
 | **Async Extraction** | ✅ | Fire-and-forget + 500ms debounce |
+| **False Positive Prevention** | ✅ | Three-layer defense |
 
-### FASE 1 ✅ COMPLETATA
+### FASE 1-3 ✅ COMPLETATE
 
-Plugin funzionante che carica senza crashare, con estrazione asincrona che non blocca l'UI.
+Plugin funzionante con:
+- Caricamento senza crash (bun build)
+- Estrazione asincrona non-blocking
+- Prevenzione falsi positivi (negative patterns + multi-keyword + threshold)
+- Retrieval e injection delle memorie
 
 ### 🟢 BUG RISOLTO: esbuild → bun build
 
