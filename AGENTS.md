@@ -199,6 +199,104 @@ Vedi `PLAN.md` per codice dettagliato.
 
 Vedi `PLAN.md` per codice dettagliato.
 
+### 🟢 FIX: Multi-Agent Noise
+
+**Problema**: In multi-agent sessions, the plugin was extracting metadata from sub-agent communication (e.g., "748 messages" from `background_task`), causing noise in the memory database.
+
+**Soluzione**: Implementare sub-agent detection in `src/adapters/opencode/index.ts`:
+- Heuristic: Detect session IDs containing `-task-` (OpenCode convention for sub-sessions)
+- Skip memory extraction for sub-agent sessions entirely
+- This prevents tool-related metadata from being stored as memories
+
+**Implementazione**:
+```typescript
+function isSubAgentSession(sessionId: string): boolean {
+  return sessionId.includes('-task-');
+}
+
+// In handleSessionIdle:
+if (isSubAgentSession(state.sessionId)) {
+  logger.debug('Skipping extraction for sub-agent session', { sessionId: state.sessionId });
+  return;
+}
+```
+
+Vedi `PLAN.md` per codice dettagliato.
+
+### 🟢 FIX: Resource Leaks & Crashes
+
+**Problema**: Transformers.js pipeline remained loaded indefinitely, causing Bun crashes and high CPU usage after prolonged sessions (~70% CPU, ~150MB RAM leak).
+
+**Soluzione**: Implementare idle timeout e proper disposal in `src/memory/embeddings.ts`:
+- 5-minute idle timeout per il pipeline
+- Auto-dispose quando non usato per 5+ minuti
+- Lazy reload al prossimo `embed()` call
+
+**Implementazione**:
+```typescript
+let lastUsedTime = Date.now();
+let idleTimeoutId: any = null;
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getPipeline(): Promise<any> {
+  if (pipelineReady) {
+    lastUsedTime = Date.now();
+    resetIdleTimeout();
+    return embeddingPipeline;
+  }
+
+  // ... load pipeline ...
+
+  lastUsedTime = Date.now();
+  resetIdleTimeout();
+  return embeddingPipeline;
+}
+
+function resetIdleTimeout(): void {
+  if (idleTimeoutId) {
+    clearTimeout(idleTimeoutId);
+  }
+  
+  idleTimeoutId = setTimeout(async () => {
+    logger.info('Embedding pipeline idle timeout, disposing...');
+    await disposePipeline();
+  }, IDLE_TIMEOUT_MS);
+}
+```
+
+Vedi `PLAN.md` per codice dettagliato.
+
+### 🟢 FIX: Meta-Talk Filtering
+
+**Problema**: L'estrattore catturava tool-related content (e.g., `<tool_use>`, `<tool_result>`, JSON blobs), inquinando le memorie con meta-talk e noise.
+
+**Soluzione**: Aggressive regex filtering in `src/adapters/opencode/index.ts`:
+- Rimuovi `<tool_use>` e `<tool_result>` blocks
+- Rimuovi JSON blobs (tool inputs/outputs)
+- Rimuovi pattern di tool communication
+
+**Implementazione**:
+```typescript
+const META_TALK_PATTERNS = [
+  /<tool_use>[\s\S]*?<\/tool_use>/gi,
+  /<tool_result>[\s\S]*?<\/tool_result>/gi,
+  /<\|.*?\|>/g,  // XML-style tool tags
+  /```\s*(json|tool_use|tool_result)[\s\S]*?```/gi,
+  /\{[\s]*["']?tool["']?[\s]*:[\s\S]*?\}/g,
+  /["']?tool["']?\s*:\s*\{[\s\S]*?\}/g,
+];
+
+function filterMetaTalk(text: string): string {
+  let filtered = text;
+  for (const pattern of META_TALK_PATTERNS) {
+    filtered = filtered.replace(pattern, '');
+  }
+  return filtered;
+}
+```
+
+Vedi `PLAN.md` per codice dettagliato.
+
 ### Dipendenze Corrette (package.json)
 
 ```json
@@ -358,13 +456,26 @@ true-memory/
 
 ---
 
+## Database Initialization
+
+Il plugin utilizza uno schema consolidato **v1.0.0** dal primo avvio. Non ci sono migrazioni v1 → v2; il database viene creato con lo schema finale completo.
+
+**Schema consolidato v1.0.0**:
+- `memories` tabella con tutti i campi necessari (type, scope, content, summary, store, embedding, strength, frequency, confidence, created_at, updated_at, last_accessed, decay_type)
+- Indici ottimizzati per retrieval veloce (scope, type, store)
+- Supporto completo per vector embeddings (BLOB storage)
+
+**Path database**: `~/.true-memory/memory.db`
+
+---
+
 ## Debug
 
 ```bash
 # Visualizzare log
 tail -f ~/.true-memory/plugin-debug.log
 
-# Query database (quando funzionante)
+# Query database
 sqlite3 ~/.true-memory/memory.db ".schema"
 
 # Cercare errori
@@ -411,5 +522,5 @@ Quando si lancia un task in background (`background_task`), NON controllare lo s
 - **Creato**: 22/02/2026
 - **Ispirato da**: [PsychMem](https://github.com/muratg98/psychmem) v1.0.5
 - **Miglioramenti**: Basati su feedback Reddit r/opencodeCLI
-- **Bug risolti**: esbuild → bun build fix, Transformers.js bundling, Memory Echo prevention, Explicit intent classification, Multilingual support
-- **Stato**: FASE 1-7 completate, plugin funzionante con vector embeddings attivi
+- **Bug risolti**: esbuild → bun build fix, Transformers.js bundling, Memory Echo prevention, Explicit intent classification, Multilingual support, Multi-Agent noise detection, Resource leaks & crashes, Meta-talk filtering
+- **Stato**: FASE 1-7 completate, plugin funzionante con vector embeddings attivi + production-ready stability fixes

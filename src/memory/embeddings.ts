@@ -14,6 +14,8 @@ class EmbeddingPipeline {
   private pipeline: any = null;
   private isInitialized = false;
   private initializationPromise: Promise<void> | null = null;
+  private disposeTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
   private constructor() {
     log('Embeddings: Singleton created (lazy loading mode)');
@@ -121,6 +123,9 @@ class EmbeddingPipeline {
         dimensions: embedding.length,
       });
 
+      // Reset idle timer after successful embedding
+      this.resetIdleTimer();
+
       return embedding;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -135,9 +140,20 @@ class EmbeddingPipeline {
    */
   public async dispose(): Promise<void> {
     try {
+      // Clear the idle timer
+      if (this.disposeTimer) {
+        clearTimeout(this.disposeTimer);
+        this.disposeTimer = null;
+      }
+
       if (this.pipeline) {
-        // Transformers.js pipelines don't have a direct dispose method
-        // We just clear the reference and let garbage collection handle it
+        // Transformers.js pipelines may have a dispose method for proper cleanup
+        if (typeof this.pipeline.dispose === 'function') {
+          log('Embeddings: Calling pipeline.dispose()');
+          await this.pipeline.dispose();
+        }
+
+        // Clear the reference and let garbage collection handle it
         this.pipeline = null;
         this.isInitialized = false;
         this.initializationPromise = null;
@@ -154,6 +170,23 @@ class EmbeddingPipeline {
    */
   public isReady(): boolean {
     return this.isInitialized && this.pipeline !== null;
+  }
+
+  /**
+   * Reset the idle timer for automatic disposal
+   * Called after each successful embedding operation
+   */
+  private resetIdleTimer(): void {
+    // Clear existing timer
+    if (this.disposeTimer) {
+      clearTimeout(this.disposeTimer);
+    }
+
+    // Set new timer to dispose after idle timeout
+    this.disposeTimer = setTimeout(async () => {
+      log('Embeddings: Idle timeout reached, disposing pipeline');
+      await this.dispose();
+    }, this.IDLE_TIMEOUT_MS);
   }
 }
 

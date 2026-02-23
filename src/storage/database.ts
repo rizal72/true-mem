@@ -47,7 +47,6 @@ export class MemoryDatabase {
   private config: PsychMemConfig;
   private initialized: boolean = false;
   private _inTransaction: boolean = false;
-  private static readonly SCHEMA_VERSION = 2;
 
   constructor(config: Partial<PsychMemConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -59,15 +58,28 @@ export class MemoryDatabase {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    const dbPath = resolveDbPath(this.config.dbPath);
-    ensureDbDirectory(dbPath);
-    this.db = await createDatabase(dbPath);
+    try {
+      const dbPath = resolveDbPath(this.config.dbPath);
+      ensureDbDirectory(dbPath);
+      this.db = await createDatabase(dbPath);
 
-    // Set WAL mode
-    this.db.exec('PRAGMA journal_mode = WAL');
+      // Set WAL mode (safe - fallback to delete mode if fails)
+      try {
+        this.db.exec('PRAGMA journal_mode = WAL');
+        log('Database WAL mode enabled successfully');
+      } catch (walError) {
+        log('Warning: Failed to enable WAL mode, continuing with DELETE mode', walError);
+        // WAL mode can fail on some network drives or special filesystems
+        // The database will continue to work with DELETE journal mode
+      }
 
-    this.initializeSchema();
-    this.initialized = true;
+      this.initializeSchema();
+      this.initialized = true;
+      log('Database initialized successfully');
+    } catch (error) {
+      log('Failed to initialize database', error);
+      throw new Error(`Database initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private ensureInit(): void {
@@ -77,137 +89,126 @@ export class MemoryDatabase {
   }
 
   private initializeSchema(): void {
-    // Begin transaction for migration process
-    this.db.exec('BEGIN TRANSACTION');
+    // Create schema_version table first
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+    `);
 
-    try {
-      // Create schema_version table first if it doesn't exist
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS schema_version (
-          version INTEGER PRIMARY KEY,
-          applied_at TEXT NOT NULL
-        );
-      `);
+    // Check if schema_version table has any records
+    const countRow = this.db.prepare('SELECT COUNT(*) as count FROM schema_version').get() as { count: number };
+    let currentVersion = 0;
 
-      // Get current version
+    if (countRow.count > 0) {
+      // Get current version only if table has records
       const row = this.db.prepare('SELECT version FROM schema_version ORDER BY version DESC LIMIT 1').get() as { version: number } | undefined;
-      const currentVersion = row?.version ?? 0;
+      currentVersion = row?.version ?? 0;
+    }
 
-      log(`Database schema version: ${currentVersion}`);
+    log(`Database schema version: ${currentVersion}`);
 
-      // Define migrations
-      const migrations: Array<{ version: number; description: string; sql: string }> = [
-        {
-          version: 1,
-          description: 'Create initial tables (sessions, events, memory_units) without embedding column',
-          sql: `
-            -- Sessions table
-            CREATE TABLE IF NOT EXISTS sessions (
-              id TEXT PRIMARY KEY,
-              project TEXT NOT NULL,
-              started_at TEXT NOT NULL,
-              ended_at TEXT,
-              status TEXT NOT NULL DEFAULT 'active',
-              metadata TEXT,
-              transcript_path TEXT,
-              transcript_watermark INTEGER DEFAULT 0,
-              message_watermark INTEGER DEFAULT 0
-            );
+    // If version is 0, apply the full consolidated schema
+    if (currentVersion === 0) {
+      this.db.exec('BEGIN TRANSACTION');
 
-            -- Events table (raw hook events)
-            CREATE TABLE IF NOT EXISTS events (
-              id TEXT PRIMARY KEY,
-              session_id TEXT NOT NULL,
-              hook_type TEXT NOT NULL,
-              timestamp TEXT NOT NULL,
-              content TEXT NOT NULL,
-              tool_name TEXT,
-              tool_input TEXT,
-              tool_output TEXT,
-              metadata TEXT,
-              FOREIGN KEY (session_id) REFERENCES sessions(id)
-            );
+      try {
+        log('Applying full schema...');
+        this.db.exec(`
+          -- Sessions table
+          CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            project TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            metadata TEXT,
+            transcript_path TEXT,
+            transcript_watermark INTEGER DEFAULT 0,
+            message_watermark INTEGER DEFAULT 0
+          );
 
-            -- Memory units table (WITHOUT embedding column)
-            CREATE TABLE IF NOT EXISTS memory_units (
-              id TEXT PRIMARY KEY,
-              session_id TEXT,
-              store TEXT NOT NULL,
-              classification TEXT NOT NULL,
-              summary TEXT NOT NULL,
-              source_event_ids TEXT NOT NULL,
-              project_scope TEXT,
+          -- Events table (raw hook events)
+          CREATE TABLE IF NOT EXISTS events (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            hook_type TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            content TEXT NOT NULL,
+            tool_name TEXT,
+            tool_input TEXT,
+            tool_output TEXT,
+            metadata TEXT,
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+          );
 
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              last_accessed_at TEXT NOT NULL,
+          -- Memory units table (WITH embedding column)
+          CREATE TABLE IF NOT EXISTS memory_units (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            store TEXT NOT NULL,
+            classification TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            source_event_ids TEXT NOT NULL,
+            project_scope TEXT,
 
-              recency REAL NOT NULL DEFAULT 0,
-              frequency INTEGER NOT NULL DEFAULT 1,
-              importance REAL NOT NULL DEFAULT 0.5,
-              utility REAL NOT NULL DEFAULT 0.5,
-              novelty REAL NOT NULL DEFAULT 0.5,
-              confidence REAL NOT NULL DEFAULT 0.5,
-              interference REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_accessed_at TEXT NOT NULL,
 
-              strength REAL NOT NULL DEFAULT 0.5,
-              decay_rate REAL NOT NULL,
+            recency REAL NOT NULL DEFAULT 0,
+            frequency INTEGER NOT NULL DEFAULT 1,
+            importance REAL NOT NULL DEFAULT 0.5,
+            utility REAL NOT NULL DEFAULT 0.5,
+            novelty REAL NOT NULL DEFAULT 0.5,
+            confidence REAL NOT NULL DEFAULT 0.5,
+            interference REAL NOT NULL DEFAULT 0,
 
-              tags TEXT,
-              associations TEXT,
+            strength REAL NOT NULL DEFAULT 0.5,
+            decay_rate REAL NOT NULL,
 
-              status TEXT NOT NULL DEFAULT 'active',
-              version INTEGER NOT NULL DEFAULT 1,
+            tags TEXT,
+            associations TEXT,
 
-              FOREIGN KEY (session_id) REFERENCES sessions(id)
-            );
+            status TEXT NOT NULL DEFAULT 'active',
+            version INTEGER NOT NULL DEFAULT 1,
+            embedding BLOB,
 
-            -- Indexes
-            CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-            CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_memory_store ON memory_units(store);
-            CREATE INDEX IF NOT EXISTS idx_memory_status ON memory_units(status);
-            CREATE INDEX IF NOT EXISTS idx_memory_strength ON memory_units(strength);
-            CREATE INDEX IF NOT EXISTS idx_memory_classification ON memory_units(classification);
-            CREATE INDEX IF NOT EXISTS idx_memory_session ON memory_units(session_id);
-            CREATE INDEX IF NOT EXISTS idx_memory_project_scope ON memory_units(project_scope);
-            CREATE INDEX IF NOT EXISTS idx_memory_status_strength ON memory_units(status, strength);
-          `,
-        },
-        {
-          version: 2,
-          description: 'Add embedding column to memory_units table',
-          sql: `
-            -- Check if embedding column already exists before adding
-            -- This is handled by checking SQLite master table
-            ALTER TABLE memory_units ADD COLUMN embedding BLOB;
-          `,
-        },
-      ];
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+          );
 
-      // Run migrations sequentially
-      for (const migration of migrations) {
-        if (migration.version > currentVersion) {
-          log(`Applying migration ${migration.version}: ${migration.description}`);
-          this.db.exec(migration.sql);
-          log(`Migration ${migration.version} applied successfully`);
-        }
+          -- Indexes
+          CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+          CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_memory_store ON memory_units(store);
+          CREATE INDEX IF NOT EXISTS idx_memory_status ON memory_units(status);
+          CREATE INDEX IF NOT EXISTS idx_memory_strength ON memory_units(strength);
+          CREATE INDEX IF NOT EXISTS idx_memory_classification ON memory_units(classification);
+          CREATE INDEX IF NOT EXISTS idx_memory_session ON memory_units(session_id);
+          CREATE INDEX IF NOT EXISTS idx_memory_project_scope ON memory_units(project_scope);
+          CREATE INDEX IF NOT EXISTS idx_memory_status_strength ON memory_units(status, strength);
+        `);
 
-        // Record migration
+        // Record schema version
         this.db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
-          migration.version,
+          1,
           new Date().toISOString()
         );
-      }
 
-      // Commit transaction
-      this.db.exec('COMMIT');
-      log('Schema initialization completed successfully');
-    } catch (error) {
-      // Rollback on error
-      this.db.exec('ROLLBACK');
-      log('Schema initialization failed, transaction rolled back', error);
-      throw error;
+        this.db.exec('COMMIT');
+        log('Schema initialized successfully');
+      } catch (error) {
+        try {
+          this.db.exec('ROLLBACK');
+          log('Schema initialization failed, transaction rolled back', error);
+        } catch (rollbackError) {
+          log('Failed to rollback transaction after error', rollbackError);
+        }
+        throw error;
+      }
+    } else {
+      log('Schema already initialized, skipping');
     }
   }
 

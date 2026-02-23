@@ -28,20 +28,20 @@ async function lazyInit(): Promise<Hooks> {
   if (state.initialized && state.realHooks) {
     return state.realHooks;
   }
-  
+
   if (state.initPromise) {
     await state.initPromise;
-    return state.realHooks!;
+    return state.realHooks || {};
   }
-  
+
   state.initPromise = (async () => {
     log('Lazy init started');
-    
+
     if (!state.ctx) {
       log('ERROR: No ctx available');
       return;
     }
-    
+
     try {
       // Dynamic import to avoid blocking at module load time
       const { createTrueMemoryPlugin } = await import('./adapters/opencode/index.js');
@@ -50,11 +50,15 @@ async function lazyInit(): Promise<Hooks> {
       log('Lazy init completed');
     } catch (error) {
       log(`Lazy init failed: ${error}`);
-      state.initPromise = null; // Reset to allow retry on subsequent calls
+      // Reset to allow retry on subsequent calls
+      state.initPromise = null;
+      state.realHooks = null;
     }
   })();
-  
+
   await state.initPromise;
+  // Return an empty hooks object if initialization failed
+  // This prevents TypeError when callers try to access hook properties
   return state.realHooks || {};
 }
 

@@ -34,6 +34,12 @@ function getSessionIdFromEvent(properties?: Record<string, unknown>): string | u
   return undefined;
 }
 
+// Sub-agent detection helper
+function isSubAgentSession(sessionId: string): boolean {
+  // Heuristic: sub-agent sessions typically contain "-task-" in the ID
+  return sessionId.includes('-task-');
+}
+
 // Debounce helper for message.updated events
 function debounceMessageUpdate(
   state: TrueMemoryAdapterState,
@@ -248,6 +254,12 @@ async function processSessionIdle(
 
   if (sessionId && !state.currentSessionId) {
     state.currentSessionId = sessionId;
+  }
+
+  // Skip extraction for sub-agent sessions to avoid duplicate extraction
+  if (isSubAgentSession(effectiveSessionId)) {
+    log(`Skipping extraction: sub-agent session detected (${effectiveSessionId})`);
+    return;
   }
 
   const watermark = state.db.getMessageWatermark(effectiveSessionId);
@@ -491,6 +503,9 @@ function extractConversationText(messages: MessageContainer[]): string {
     /\[Tool:\s*\w+\]/i,
     /^Tool Result:/i,
     /^Tool Error:/i,
+    /<tool_use>[\s\S]*?<\/tool_use>/gi,  // Strip <tool_use> blocks
+    /<tool_result>[\s\S]*?<\/tool_result>/gi,  // Strip <tool_result> blocks
+    /```json[\s\S]*?"tool"[\s\S]*?```/gi,  // Strip JSON blobs with tool
   ];
 
   for (const msg of messages) {
