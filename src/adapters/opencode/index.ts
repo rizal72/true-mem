@@ -5,15 +5,21 @@
 const BUILD_TIME = "2026-02-23T09:45:00.000Z";
 
 import type { PluginInput, Hooks, Event, Message, Part } from '../../types.js';
-import type { PsychMemConfig, MemoryUnit } from '../../types.js';
+import type { PsychMemConfig, MemoryUnit, RoleAwareContext, RoleAwareLine, MessageRole } from '../../types.js';
 import { DEFAULT_CONFIG } from '../../config.js';
 import { MemoryDatabase, createMemoryDatabase } from '../../storage/database.js';
 import { log } from '../../logger.js';
-import { shouldStoreMemory, classifyWithExplicitIntent } from '../../memory/classifier.js';
+import {
+  shouldStoreMemory,
+  classifyWithExplicitIntent,
+  classifyWithRoleAwareness,
+  calculateRoleWeightedScore,
+} from '../../memory/classifier.js';
 import { matchAllPatterns } from '../../memory/patterns.js';
 import { embed } from '../../memory/embeddings.js';
 import { getExtractionQueue } from '../../extraction/queue.js';
 import { registerShutdownHandler, executeShutdown } from '../../shutdown.js';
+import { parseConversationLines } from '../../memory/role-patterns.js';
 
 // Debounce state for message.updated events
 let messageDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -269,9 +275,10 @@ async function processSessionIdle(
   if (!messages || messages.length <= watermark) return;
 
   const newMessages = messages.slice(watermark);
-  const conversationText = extractConversationText(newMessages);
+  const { text: conversationText, lines: roleLines } = extractConversationTextWithRoles(newMessages);
 
   log('Debug: Clean conversation text (start):', conversationText.slice(0, 200));
+  log('Debug: Role-aware lines extracted:', roleLines.length);
 
   if (!conversationText.trim()) {
     state.db.updateMessageWatermark(effectiveSessionId, messages.length);
@@ -294,10 +301,10 @@ async function processSessionIdle(
     // Don't skip extraction - let the filtered conversationText be processed
   }
 
-  // Extract memories using classifier
-  log(`Processing ${newMessages.length} new messages`);
+  // Extract memories using role-aware classifier
+  log(`Processing ${newMessages.length} new messages, ${roleLines.length} lines with role info`);
 
-  // Get signals from patterns
+  // Get signals from patterns (applied to full conversation)
   const signals = matchAllPatterns(conversationText);
   log('Debug: Detected signals:', JSON.stringify(signals));
 
@@ -308,42 +315,78 @@ async function processSessionIdle(
     extractionAttempted = true;
 
     try {
-      // Calculate base signal score (average weight of matched signals)
-      const baseSignalScore = signals.reduce((sum, s) => sum + s.weight, 0) / signals.length;
+      // Process each Human message with role-aware classification
+      const humanMessages = roleLines.filter(line => line.role === 'user');
+      log(`Debug: Processing ${humanMessages.length} Human messages for memory extraction`);
 
-      // Classify with explicit intent detection
-      const { classification, confidence, isolatedContent } = classifyWithExplicitIntent(conversationText, signals);
+      for (const humanMsg of humanMessages) {
+        const { text, role } = humanMsg;
 
-      if (classification) {
-        // Apply three-layer defense
-        const result = shouldStoreMemory(isolatedContent, classification, baseSignalScore);
+        // Get signals specific to this message
+        const msgSignals = matchAllPatterns(text);
+        if (msgSignals.length === 0) {
+          continue; // No signals in this message, skip
+        }
 
-        if (result.store) {
-          // Determine scope
-          const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
-          const scope = userLevelClassifications.includes(classification) ? undefined : state.worktree;
+        log(`Debug: Processing Human message (${msgSignals.length} signals):`, text.slice(0, 100));
 
-          // Generate embedding for the memory
-          const embedding = await embed(isolatedContent);
+        // Calculate base signal score (average weight of matched signals)
+        const baseSignalScore = msgSignals.reduce((sum, s) => sum + s.weight, 0) / msgSignals.length;
 
-          // Store memory
-          await state.db.createMemory(
-            'stm',
-            classification as any,
-            extractCleanSummary(isolatedContent), // Clean summary without prefixes
-            [],
-            {
-              sessionId: effectiveSessionId,
-              projectScope: scope,
-              importance: confidence, // Use confidence from classifyWithExplicitIntent
-              confidence: confidence,
-              embedding,
-            }
-          );
+        // Apply role weighting (10x for Human messages)
+        const roleWeightedScore = calculateRoleWeightedScore(baseSignalScore, role, text);
+        log(`Debug: Role-weighted score: ${roleWeightedScore.toFixed(2)} (base: ${baseSignalScore.toFixed(2)})`);
 
-          log(`Stored ${classification} memory (confidence: ${confidence.toFixed(2)})`);
-        } else {
-          log(`Skipped ${classification} memory: ${result.reason}`);
+        // Build role-aware context
+        const roleAwareContext: RoleAwareContext = {
+          primaryRole: role,
+          roleWeightedScore,
+          hasAssistantContext: roleLines.some(line => line.role === 'assistant'),
+          fullConversation: conversationText,
+        };
+
+        // Classify with role-awareness
+        const { classification, confidence, isolatedContent, roleValidated, validationReason } = classifyWithRoleAwareness(
+          text,
+          msgSignals,
+          roleAwareContext
+        );
+
+        log(`Debug: Classification result: ${classification}, confidence: ${confidence.toFixed(2)}, roleValidated: ${roleValidated}, reason: ${validationReason}`);
+
+        if (classification && roleValidated) {
+          // Apply three-layer defense
+          const result = shouldStoreMemory(isolatedContent, classification, baseSignalScore);
+
+          if (result.store) {
+            // Determine scope
+            const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
+            const scope = userLevelClassifications.includes(classification) ? undefined : state.worktree;
+
+            // Generate embedding for the memory
+            const embedding = await embed(isolatedContent);
+
+            // Store memory
+            await state.db.createMemory(
+              'stm',
+              classification as any,
+              extractCleanSummary(isolatedContent), // Clean summary without prefixes
+              [],
+              {
+                sessionId: effectiveSessionId,
+                projectScope: scope,
+                importance: confidence, // Use confidence from classifyWithRoleAwareness
+                confidence: confidence,
+                embedding,
+              }
+            );
+
+            log(`Stored ${classification} memory (confidence: ${confidence.toFixed(2)}, role: ${role})`);
+          } else {
+            log(`Skipped ${classification} memory: ${result.reason}`);
+          }
+        } else if (classification && !roleValidated) {
+          log(`Skipped ${classification} memory: ${validationReason}`);
         }
       }
 
@@ -532,6 +575,103 @@ function extractConversationText(messages: MessageContainer[]): string {
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Extract conversation text with role information
+ * Returns both the text and role-aware line information
+ */
+function extractConversationTextWithRoles(messages: MessageContainer[]): {
+  text: string;
+  lines: RoleAwareLine[];
+} {
+  const textLines: string[] = [];
+  const roleLines: RoleAwareLine[] = [];
+
+  // Regex patterns that indicate injected content (case-insensitive, should be filtered out)
+  const injectionMarkers = [
+    /## Relevant Memories from Previous Sessions/i,
+    /### User Preferences & Constraints/i,
+    /### .* Context/i,  // Matches "### ProjectName Context" pattern
+    /## Compaction Instructions/i,
+    /\[LTM\]/i,
+    /\[STM\]/i,
+  ];
+
+  // Regex patterns that indicate tool execution or results (should be filtered out)
+  const toolMarkers = [
+    /\[Tool:\s*\w+\]/i,
+    /^Tool Result:/i,
+    /^Tool Error:/i,
+    /<tool_use>[\s\S]*?<\/tool_use>/gi,  // Strip <tool_use> blocks
+    /<tool_result>[\s\S]*?<\/tool_result>/gi,  // Strip <tool_result> blocks
+    /```json[\s\S]*?"tool"[\s\S]*?```/gi,  // Strip JSON blobs with tool
+  ];
+
+  for (const msg of messages) {
+    const role: MessageRole = msg.info.role === 'user' ? 'user' : 'assistant';
+    const roleLabel = role === 'user' ? 'Human' : 'Assistant';
+
+    for (const part of msg.parts) {
+      if (part.type === 'text' && 'text' in part) {
+        const text = (part as { text: string }).text;
+
+        // Skip parts that contain any injection marker (prevents re-extracting injected content)
+        const hasInjectionMarker = injectionMarkers.some(marker => marker.test(text));
+        if (hasInjectionMarker) {
+          continue; // Skip this part entirely
+        }
+
+        // Skip parts that look like tool execution or results
+        const hasToolMarker = toolMarkers.some(marker => marker.test(text));
+        if (hasToolMarker) {
+          continue; // Skip this part entirely
+        }
+
+        textLines.push(`${roleLabel}: ${text}`);
+        roleLines.push({
+          text,
+          role,
+          lineNumber: textLines.length - 1,
+        });
+      } else if (part.type === 'tool') {
+        const toolPart = part as { tool?: string; state?: { status?: string; output?: string; error?: string } };
+        if (toolPart.state?.status === 'completed' || toolPart.state?.status === 'error') {
+          const toolText = `Assistant: [Tool: ${toolPart.tool}]`;
+          textLines.push(toolText);
+          roleLines.push({
+            text: toolText,
+            role: 'assistant',
+            lineNumber: textLines.length - 1,
+          });
+
+          if (toolPart.state.output) {
+            const outputText = `Tool Result: ${toolPart.state.output.slice(0, 2000)}`;
+            textLines.push(outputText);
+            roleLines.push({
+              text: outputText,
+              role: 'assistant',
+              lineNumber: textLines.length - 1,
+            });
+          }
+          if (toolPart.state.error) {
+            const errorText = `Tool Error: ${toolPart.state.error}`;
+            textLines.push(errorText);
+            roleLines.push({
+              text: errorText,
+              role: 'assistant',
+              lineNumber: textLines.length - 1,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    text: textLines.join('\n'),
+    lines: roleLines,
+  };
 }
 
 async function getRelevantMemories(state: TrueMemoryAdapterState, limit: number, query?: string): Promise<MemoryUnit[]> {

@@ -1,13 +1,20 @@
 /**
- * Memory Classifier with Three-Layer Defense
+ * Memory Classifier with Three-Layer Defense + Role Awareness
  *
  * Layer 1: Negative Patterns (filter out known false positives)
  * Layer 2: Multi-Keyword Scoring (require 2+ signals)
  * Layer 3: Confidence Threshold (store only if score >= 0.6)
+ * Layer 4: Role Validation (Human-only for preferences, constraints, decisions, learnings)
  */
 
 import { matchesNegativePattern } from './negative-patterns.js';
 import { log } from '../logger.js';
+import type { MessageRole, RoleAwareContext } from '../types.js';
+import { HUMAN_MESSAGE_WEIGHT_MULTIPLIER } from '../types.js';
+import {
+  scoreHumanIntent,
+  hasAssistantListPattern,
+} from './role-patterns.js';
 
 // Classification keywords for multi-keyword scoring
 const CLASSIFICATION_KEYWORDS: Record<string, { primary: string[]; boosters: string[] }> = {
@@ -161,6 +168,13 @@ export function classifyWithExplicitIntent(
   const markerPatterns = [
     /\bricorda questo\b:?\s*/gi,
     /\bremember this\b:?\s*/gi,
+    /\bricordati che\b:?\s*/gi,
+    /\bricorda che\b:?\s*/gi,
+    /\bmemorizza questo\b:?\s*/gi,
+    /\bmemorizza che\b:?\s*/gi,
+    /\bmemorizziamo\b:?\s*/gi,
+    /\bricordiamoci che\b:?\s*/gi,
+    /\bricordiamoci di\b:?\s*/gi,
     /\bricorda\b:?\s*/gi,
     /\bremember\b:?\s*/gi,
     /\btieni a mente\b:?\s*/gi,
@@ -228,4 +242,184 @@ export function classifyWithExplicitIntent(
   const fallbackClassification = inferClassification(text);
   const fallbackConfidence = fallbackClassification ? calculateClassificationScore(text, fallbackClassification) : 0;
   return { classification: fallbackClassification, confidence: fallbackConfidence, isolatedContent: text };
+}
+
+// =============================================================================
+// Role-Aware Classification
+// =============================================================================
+
+/**
+ * Validate if a memory should be stored based on role rules
+ *
+ * Returns:
+ * - store: whether to store the memory
+ * - reason: human-readable reason for decision
+ */
+export function shouldStoreMemoryWithRole(
+  text: string,
+  classification: string,
+  primaryRole: MessageRole
+): { store: boolean; reason: string } {
+  // Check if this classification has role validation rules
+  const validationRules: any = {
+    constraint: { validRoles: ['user'], requiresPrimary: true },
+    preference: { validRoles: ['user'], requiresPrimary: true },
+    learning: { validRoles: ['user'], requiresPrimary: true },
+    procedural: { validRoles: ['user'], requiresPrimary: true },
+    decision: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+    bugfix: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+    semantic: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+    episodic: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+  };
+
+  const rule = validationRules[classification];
+
+  // If no rule, allow storage (backward compatibility)
+  if (!rule) {
+    return { store: true, reason: 'no_role_validation_rule' };
+  }
+
+  // Check if primary role is valid
+  if (!rule.validRoles.includes(primaryRole)) {
+    return {
+      store: false,
+      reason: `invalid_role_${primaryRole}_for_${classification}`,
+    };
+  }
+
+  // Check if requires primary Human source
+  if (rule.requiresPrimary && primaryRole !== 'user') {
+    return {
+      store: false,
+      reason: `classification_${classification}_requires_human_primary`,
+    };
+  }
+
+  // Additional check: down-weight Assistant-generated list patterns for user-level classifications
+  if (rule.requiresPrimary && hasAssistantListPattern(text)) {
+    log('Debug: Detected Assistant list pattern, filtering out as potential false positive');
+    return {
+      store: false,
+      reason: 'assistant_list_pattern_detected',
+    };
+  }
+
+  return { store: true, reason: 'role_validation_passed' };
+}
+
+/**
+ * Classify content with role-aware context
+ *
+ * Takes into account:
+ * - Primary role of the message (Human vs Assistant)
+ * - Human intent signals (10x weight for Human messages)
+ * - Role validation rules (user-level classifications must be from Human)
+ *
+ * Returns:
+ * - classification: the inferred classification
+ * - confidence: 0-1 score
+ * - isolatedContent: the extracted content
+ * - roleValidated: whether the role validation passed
+ */
+export function classifyWithRoleAwareness(
+  text: string,
+  signals: any[],
+  roleAwareContext: RoleAwareContext | null
+): {
+  classification: string | null;
+  confidence: number;
+  isolatedContent: string;
+  roleValidated: boolean;
+  validationReason: string;
+} {
+  // First, do the standard classification with explicit intent detection
+  const baseResult = classifyWithExplicitIntent(text, signals);
+  const { classification, confidence, isolatedContent } = baseResult;
+
+  // If no classification found, return early
+  if (!classification) {
+    return {
+      classification: null,
+      confidence: 0,
+      isolatedContent: text,
+      roleValidated: true,
+      validationReason: 'no_classification_found',
+    };
+  }
+
+  // If no role-aware context provided, allow storage (backward compatibility)
+  if (!roleAwareContext) {
+    log('Debug: No role-aware context, skipping role validation');
+    return {
+      classification,
+      confidence,
+      isolatedContent,
+      roleValidated: true,
+      validationReason: 'no_role_context',
+    };
+  }
+
+  // Apply role validation
+  const roleValidation = shouldStoreMemoryWithRole(
+    isolatedContent,
+    classification,
+    roleAwareContext.primaryRole
+  );
+
+  if (!roleValidation.store) {
+    log(`Debug: Role validation failed: ${roleValidation.reason} for ${classification}`);
+    return {
+      classification,
+      confidence,
+      isolatedContent,
+      roleValidated: false,
+      validationReason: roleValidation.reason,
+    };
+  }
+
+  // Boost confidence for Human messages with high intent scores
+  if (roleAwareContext.primaryRole === 'user') {
+    const humanIntentScore = scoreHumanIntent(isolatedContent);
+    if (humanIntentScore > 0.6) {
+      // Apply 10x weight multiplier for Human messages with clear intent
+      const boostedConfidence = Math.min(1, confidence * HUMAN_MESSAGE_WEIGHT_MULTIPLIER);
+      log(`Debug: Applied Human weight multiplier: ${confidence.toFixed(2)} -> ${boostedConfidence.toFixed(2)}`);
+      return {
+        classification,
+        confidence: boostedConfidence,
+        isolatedContent,
+        roleValidated: true,
+        validationReason: 'human_intent_boosted',
+      };
+    }
+  }
+
+  return {
+    classification,
+    confidence,
+    isolatedContent,
+    roleValidated: true,
+    validationReason: 'standard_role_aware',
+  };
+}
+
+/**
+ * Calculate role-weighted score for signals
+ * Human messages get 10x weight for their signals
+ */
+export function calculateRoleWeightedScore(
+  baseSignalScore: number,
+  primaryRole: MessageRole,
+  text: string
+): number {
+  if (primaryRole === 'user') {
+    // Apply 10x weight for Human messages
+    // Also consider human intent patterns
+    const humanIntentScore = scoreHumanIntent(text);
+    const intentMultiplier = 1 + (humanIntentScore * 2); // Up to 3x based on intent strength
+    return Math.min(1, baseSignalScore * HUMAN_MESSAGE_WEIGHT_MULTIPLIER * intentMultiplier);
+  }
+
+  // Assistant messages get normal weight (can be boosted by acknowledgment patterns)
+  return baseSignalScore;
 }

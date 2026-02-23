@@ -50,7 +50,7 @@ export const EXPLICIT_REMEMBER: PatternCategory = {
     // Portuguese
     'lembre-se', 'não esqueça', 'tenha em mente', 'note que', 'importante lembrar',
     // Italian
-    'ricorda questo', 'non dimenticare', 'tieni a mente', 'nota che',
+    'ricorda questo', 'non dimenticare', 'tieni a mente', 'nota che', 'memorizza questo', 'memorizza che', 'memorizziamo', 'ricordiamoci che', 'ricordiamoci di',
     // Dutch
     'onthoud dit', 'vergeet niet', 'houd in gedachten', 'let op',
     // Turkish

@@ -70,6 +70,88 @@ export type MemoryStore = 'stm' | 'ltm';
 export type MemoryStatus = 'active' | 'decayed' | 'pinned' | 'forgotten';
 
 // =============================================================================
+// Role-Aware Memory Types
+// =============================================================================
+
+/**
+ * Message role from OpenCode SDK
+ */
+export type MessageRole = 'user' | 'assistant' | 'system';
+
+/**
+ * Role-aware context for memory extraction
+ */
+export interface RoleAwareContext {
+  /**
+   * Primary role of the message containing the memory candidate
+   */
+  primaryRole: MessageRole;
+
+  /**
+   * Role-weighted score (10x for Human messages)
+   */
+  roleWeightedScore: number;
+
+  /**
+   * Whether Assistant context supports the memory
+   */
+  hasAssistantContext: boolean;
+
+  /**
+   * Full conversation with role markers
+   */
+  fullConversation: string;
+}
+
+/**
+ * A line with its role from the conversation
+ */
+export interface RoleAwareLine {
+  text: string;
+  role: MessageRole;
+  lineNumber: number;
+}
+
+/**
+ * Role validation rules for memory classifications
+ * Determines which roles are valid sources for each classification type
+ */
+export const ROLE_VALIDATION_RULES: Record<string, { validRoles: MessageRole[]; requiresPrimary: boolean }> = {
+  // User-level classifications: MUST originate from Human messages
+  constraint: { validRoles: ['user'], requiresPrimary: true },
+  preference: { validRoles: ['user'], requiresPrimary: true },
+  learning: { validRoles: ['user'], requiresPrimary: true },
+  procedural: { validRoles: ['user'], requiresPrimary: true },
+
+  // Project-level classifications: Can be Assistant-acknowledged
+  decision: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+  bugfix: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+  semantic: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+  episodic: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+};
+
+/**
+ * Weight multiplier for Human messages in signal scoring
+ */
+export const HUMAN_MESSAGE_WEIGHT_MULTIPLIER = 10;
+
+/**
+ * Check if a classification requires Human as primary source
+ */
+export function requiresHumanPrimary(classification: string): boolean {
+  const rule = ROLE_VALIDATION_RULES[classification];
+  return rule?.requiresPrimary ?? false;
+}
+
+/**
+ * Check if a role is valid for a classification
+ */
+export function isValidRoleForClassification(classification: string, role: MessageRole): boolean {
+  const rule = ROLE_VALIDATION_RULES[classification];
+  return rule?.validRoles.includes(role) ?? true;
+}
+
+// =============================================================================
 // Core Data Models
 // =============================================================================
 

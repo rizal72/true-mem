@@ -59,7 +59,8 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | src/storage/database.ts | ✅ | MemoryDatabase class |
 | src/memory/patterns.ts | ✅ | 670 lines, 15 languages |
 | src/memory/negative-patterns.ts | ✅ | False positive prevention |
-| src/memory/classifier.ts | ✅ | Three-layer defense + explicit intent |
+| src/memory/role-patterns.ts | ✅ | Role-aware extraction (Human vs Assistant) |
+| src/memory/classifier.ts | ✅ | Four-layer defense + explicit intent + role validation |
 | src/memory/embeddings.ts | ✅ | Transformers.js, cosine similarity, eval import trick |
 | src/memory/reconsolidate.ts | ✅ | Vector-based conflict resolution |
 | src/extraction/queue.ts | ✅ | Fire-and-forget extraction queue |
@@ -69,7 +70,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | **TypeCheck** | ✅ | 0 errors |
 | **Runtime Test** | ✅ | **FUNZIONA** |
 | **Async Extraction** | ✅ | Fire-and-forget + 500ms debounce |
-| **False Positive Prevention** | ✅ | Three-layer defense + explicit intent isolation |
+| **False Positive Prevention** | ✅ | Four-layer defense + explicit intent isolation + role validation |
 | **Vector Embeddings** | ✅ | Working (Transformers.js local, @huggingface/transformers) |
 | **Intelligent Decay** | ✅ | Only episodic, triggered on session start |
 | **Reconsolidation** | ✅ | Vector-based heuristic (similarity thresholds, not LLM) |
@@ -190,12 +191,58 @@ Vedi `PLAN.md` per codice dettagliato.
 **Problema**: Il classificatore non aveva keyword italiane, quindi le frasi in italiano non venivano classificate correttamente.
 
 **Soluzione**: Aggiungere keyword italiane a tutte le categorie in `CLASSIFICATION_KEYWORDS`:
-- `constraint`: 'non posso', 'proibito', 'vietato', 'mai', 'evita'
-- `preference`: 'preferisco', 'piace', 'non mi piace', 'meglio'
-- `decision`: 'deciso', 'scelto', 'abbiamo deciso'
-- `learning`: 'imparato', 'scoperto', 'ho capito'
-- `bugfix`: 'errore', 'bug', 'risolto', 'fixato'
-- `procedural': 'passo', 'processo', 'workflow'
+- `constraint`: 'non posso', 'vietato', 'proibito', 'obbligatorio'
+- `preference`: 'preferisco', 'mi piace', 'voglio', 'prediligo', 'meglio', 'ottimo', 'invece', 'rispetto a'
+- `decision`: 'deciso', 'scelto', 'selezionato', 'perché', 'poiché', 'motivo', 'ragione'
+- `learning`: 'imparato', 'scoperto', 'capito', 'oggi', 'appena'
+- `bugfix`: 'errore', 'guasto', 'fallimento', 'risolto', 'corretto', 'sistemato', 'patchato'
+- `procedural': 'passo', 'processo', 'workflow', 'procedure', 'instructions', 'guide'
+
+**Aggiunta Italian Explicit Intent Patterns**: Espansione dei pattern di intento esplicito per supportare italiano completo:
+- `ricorda questo`, `ricordati che`, `ricorda che`
+- `memorizza questo`, `memorizza che`, `memorizziamo`
+- `ricordiamoci che`, `ricordiamoci di`, `tieni a mente`
+- `nota che`, `tieni presente`
+
+Vedi `PLAN.md` per codice dettagliato.
+
+### 🟢 FIX: Role-Aware Extraction
+
+**Problema**: Il sistema mescolava i messaggi Human e Assistant, causando falsi positivi da liste generate dall'Assistant e perdita di intento umano.
+
+**Soluzione**: Implementare role-aware extraction in `src/memory/classifier.ts` e `src/memory/role-patterns.ts`:
+- **Human messages**: Ricevono un weight multiplier di 10x per i segnali di intento
+- **Role Validation**: Le classificazioni `preference`, `constraint`, `decision`, e `learning` DEVONO provenire da messaggi Human
+- **Assistant Context**: I messaggi Assistant forniscono contesto ma non sono fonti primarie per preferenze/decisioni
+- **Fourth Layer**: Role validation aggiunto come quarto livello di difesa contro falsi positivi
+
+**Implementazione**:
+```typescript
+// src/types.ts
+export const HUMAN_MESSAGE_WEIGHT_MULTIPLIER = 10;
+
+export const ROLE_VALIDATION_RULES: Record<string, { validRoles: MessageRole[]; requiresPrimary: boolean }> = {
+  constraint: { validRoles: ['user'], requiresPrimary: true },
+  preference: { validRoles: ['user'], requiresPrimary: true },
+  learning: { validRoles: ['user'], requiresPrimary: true },
+  procedural: { validRoles: ['user'], requiresPrimary: true },
+  decision: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+  bugfix: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+  semantic: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+  episodic: { validRoles: ['user', 'assistant'], requiresPrimary: false },
+};
+
+// src/memory/role-patterns.ts
+export function scoreHumanIntent(text: string): number {
+  // Scores first-person expressions of preferences, decisions, constraints
+  // Returns 0-1 score, higher = more likely Human intent
+}
+
+export function hasAssistantListPattern(text: string): boolean {
+  // Detects Assistant rephrasings of user preferences as lists
+  // These are down-weighted to prevent false positives
+}
+```
 
 Vedi `PLAN.md` per codice dettagliato.
 
@@ -383,9 +430,174 @@ export async function createDatabase(dbPath: string): Promise<SqliteDatabase> {
    - **Nota**: Intra-session retrieval è intenzionalmente limitato al session start/first message per evitare context bloat e oscillazioni semantiche. Cross-session continuity è l'obiettivo principale.
 4. **Estrazione Asincrona** - Fire-and-forget per non bloccare l'UI
 5. **Reconsolidation** - Valutazione conflitti via similarità vettoriale (non LLM)
-6. **False Positive Prevention** - Three-layer defense (negative patterns + multi-keyword + threshold)
+6. **False Positive Prevention** - Four-layer defense (negative patterns + multi-keyword + threshold + role validation)
+   - **Layer 1**: Negative patterns (filtra falsi positivi noti)
+   - **Layer 2**: Multi-keyword scoring (richiede 2+ segnali)
+   - **Layer 3**: Confidence threshold (salva solo se score ≥ 0.6)
+   - **Layer 4**: Role validation (Human-only per preferenze, decisioni, constraint)
 
-Vedi `PLAN.md` per i dettagli implementativi.
+---
+
+## Technical Implementation Details
+
+### 7-Feature Scoring Model
+
+Le memorie vengono classificate e punteggiate usando 7 feature:
+
+| Feature | Weight | Description | Formula |
+|---------|--------|-------------|----------|
+| **Recency** | 0.20 | Tempo dalla creazione (0 = recente, 1 = vecchio) | `1 - min(1, hours / 168)` |
+| **Frequency** | 0.15 | Numero di accessi (log scale) | `min(1, log(freq + 1) / log(10))` |
+| **Importance** | 0.25 | Combinazione di segnali (diminishing returns) | Σ(weight × 0.7^i) |
+| **Utility** | 0.20 | Utilità per task corrente (feedback-adjusted) | Default 0.5 |
+| **Novelty** | 0.10 | Distanza da memorie esistenti | `1 - maxSimilarity` |
+| **Confidence** | 0.10 | Consenso evidenze per metodo estrazione | 0.50-0.75 |
+| **Interference** | -0.10 | Penalità conflitti (solo se sim 0.3-0.8) | Similarity × 0.5 |
+
+**Strength Formula**:
+```
+Strength = Σ(wᵢ × fᵢ) clamped to [0, 1]
+```
+
+### 3-Stage Extraction Pipeline
+
+**Stage 1: Context Sweep**
+1. **Multilingual Pattern Matching** (15 languages, 8 signal types)
+2. **Structural Analysis** (typography, repetition, elaboration)
+3. **Candidate Extraction** (pre-filtering for low-signal messages)
+
+**Stage 2: Selective Memory**
+1. **Feature Scoring** (7-feature vector calculation)
+2. **Strength Calculation** (weighted sum)
+3. **Store Allocation** (STM vs LTM based on classification)
+
+### False Positive Prevention: Four-Layer Defense
+
+**Layer 1: Negative Patterns** (Filter OUT known false positives)
+```typescript
+// Esempi di pattern negativi
+/resolve\s+(dns|ip|address|hostname|url|uri)/i,  // Non "fix"
+/fixed\s+(width|height|position|size)/i,           // CSS styling
+/handle\s+(click|event|input|change)/i,            // Event handlers
+/machine\s+learning/i,                             // Non "I learned"
+```
+
+**Layer 2: Multi-Keyword Scoring** (Require 2+ signals)
+```typescript
+// Need at least 1 primary + 1 booster for high confidence
+if (primaryMatches === 0) return 0;          // No primary keyword
+if (primaryMatches === 1 && boosterMatches === 0) return 0.4;  // Low confidence
+
+return Math.min(1, 0.4 + (primaryMatches * 0.2) + (boosterMatches * 0.15));
+```
+
+**Layer 3: Confidence Threshold** (Store only if score ≥ 0.6)
+```typescript
+const CONFIDENCE_THRESHOLD = 0.6;
+const finalScore = (baseScore + keywordScore) / 2;
+return finalScore >= CONFIDENCE_THRESHOLD;
+```
+
+**Layer 4: Role Validation** (Human-only for user-level classifications)
+| Classification | Valid Roles | Requires Human Primary? |
+|----------------|--------------|------------------------|
+| constraint | user | ✅ YES |
+| preference | user | ✅ YES |
+| learning | user | ✅ YES |
+| procedural | user | ✅ YES |
+| decision | user, assistant | ❌ NO |
+| bugfix | user, assistant | ❌ NO |
+| semantic | user, assistant | ❌ NO |
+| episodic | user, assistant | ❌ NO |
+
+**Human Message Weight Multiplier**: 10x for intent signals
+
+### Multilingual Classification (Italian Support)
+
+**Pattern di intento esplicito in italiano**:
+- `ricorda questo` → Remember this
+- `ricordati che` / `ricorda che` → Remember that
+- `memorizza questo` / `memorizza che` → Memorize this/that
+- `ricordiamoci che` / `ricordiamoci di` → Let's remember that/to
+- `tieni a mente` / `keep in mind` → Keep in mind
+- `nota che` / `note that` → Note that
+
+**Keyword italiane per categoria**:
+```typescript
+constraint: ['non posso', 'vietato', 'proibito', 'obbligatorio', 'evita']
+preference: ['preferisco', 'mi piace', 'voglio', 'prediligo', 'meglio', 'ottimo', 'invece', 'rispetto a']
+decision: ['deciso', 'scelto', 'selezionato', 'abbiamo deciso', 'perché', 'poiché', 'motivo', 'ragione']
+learning: ['imparato', 'scoperto', 'capito', 'oggi', 'appena']
+bugfix: ['errore', 'guasto', 'fallimento', 'risolto', 'corretto', 'sistemato', 'patchato']
+procedural: ['passo', 'processo', 'workflow', 'procedura', 'instructions', 'guide']
+```
+
+### Store Allocation Rules
+
+| Classification | Default Store | Auto-Promote to LTM? | Scope |
+|----------------|---------------|----------------------|-------|
+| bugfix | LTM | ✅ YES | Project |
+| learning | LTM | ✅ YES | User (Global) |
+| decision | LTM | ✅ YES | Project |
+| constraint | STM | ❌ NO | User (Global) |
+| preference | STM | ❌ NO | User (Global) |
+| procedural | STM | ❌ NO | User (Global) |
+| semantic | STM | ❌ NO | Project |
+| episodic | STM | ❌ NO | Project |
+
+**Promotion conditions** (STM → LTM):
+- `strength >= 0.7` (alta importanza)
+- `frequency >= 3` (accesso/mention ripetuto)
+- Classification è auto-promote (`bugfix`, `learning`, `decision`)
+
+### Decay Strategy
+
+**Applica decay SOLO a memorie episodiche**:
+```typescript
+if (config.applyDecayOnlyToEpisodic && memory.decay_type !== 'temporal') {
+  return { strength: memory.strength, shouldRemove: false };  // No decay
+}
+```
+
+**Esempi**:
+- `episodic`: Decade con formula Ebbinghaus (λ = 0.05 per STM, 0.01 per LTM)
+- `preference`, `constraint`, `decision`: Non decade mai (esplicito solo per conflitti)
+- `learning`, `bugfix`, `semantic`, `procedural`: Non decade mai
+
+### Vector Embeddings Configuration
+
+**Modello**: `Xenova/all-MiniLM-L6-v2` (quantized)
+- **Dimensioni**: 384
+- **RAM**: ~43MB quando caricato
+- **Inference**: ~50-100ms dopo primo caricamento
+- **Storage**: BLOB in SQLite (Float32Array → Buffer)
+
+**Architecture Decisions**:
+| Aspect | Choice | Rationale |
+|---------|--------|-----------|
+| Library | `@huggingface/transformers` | Local, private, free - no API keys |
+| Model | `Xenova/all-MiniLM-L6-v2` | Fast inference, good semantic quality |
+| Storage | BLOB in SQLite | Float32Array → Buffer for storage |
+| Retrieval | In-memory cosine similarity | SQLite lacks vector extensions |
+| Optimization | Singleton + lazy loading + 5min idle timeout | Minimize memory footprint |
+
+### Reconsolidation Strategy
+
+**Vector-based conflict resolution** (non LLM):
+```typescript
+// Detect similar memories with embeddings
+if (similarity > 0.7) {
+  // Handle based on threshold ranges
+  if (similarity > 0.9) return 'duplicate';    // Merge
+  if (similarity > 0.8) return 'complement';   // Keep both
+  return 'conflict';                          // Keep newer
+}
+```
+
+**Azione**:
+- `conflict` (> 0.7, ≤ 0.8): Mantieni la più recente
+- `complement` (> 0.8, ≤ 0.9): Mantieni entrambe
+- `duplicate` (> 0.9): Mergia (increment frequency)
 
 ---
 
@@ -399,12 +611,13 @@ true-memory/
 │   ├── config.ts                # Default config
 │   ├── logger.ts                # File-based logger
 │   ├── storage/
-│   │   ├── sqlite-adapter.ts    # bun:sqlite + node:sqlite
-│   │   └── database.ts          # MemoryDatabase class
+│   │   ├── sqlite-adapter.ts    # bun:sqlite + node:sqlite runtime adapter
+│   │   └── database.ts          # MemoryDatabase class with sessions/events/memory_units
 │   ├── memory/
 │   │   ├── patterns.ts          # Multilingual patterns (670 lines)
 │   │   ├── negative-patterns.ts # False positive prevention
-│   │   ├── classifier.ts        # Three-layer defense
+│   │   ├── role-patterns.ts    # Role-aware extraction (Human vs Assistant)
+│   │   ├── classifier.ts        # Four-layer defense + role validation
 │   │   ├── embeddings.ts        # Transformers.js, cosine similarity
 │   │   └── reconsolidate.ts     # Vector-based conflict resolution
 │   ├── extraction/
@@ -461,9 +674,14 @@ true-memory/
 Il plugin utilizza uno schema consolidato **v1.0.0** dal primo avvio. Non ci sono migrazioni v1 → v2; il database viene creato con lo schema finale completo.
 
 **Schema consolidato v1.0.0**:
-- `memories` tabella con tutti i campi necessari (type, scope, content, summary, store, embedding, strength, frequency, confidence, created_at, updated_at, last_accessed, decay_type)
-- Indici ottimizzati per retrieval veloce (scope, type, store)
-- Supporto completo per vector embeddings (BLOB storage)
+- `schema_version` table - Version tracking (version, applied_at)
+- `sessions` table - Session tracking (id, project, started_at, ended_at, status, metadata, transcript_path, transcript_watermark, message_watermark)
+- `events` table - Raw hook events (id, session_id, hook_type, timestamp, content, tool_name, tool_input, tool_output, metadata)
+- `memory_units` table - Complete memory model with all scoring features (id, session_id, store, classification, summary, source_event_ids, project_scope, timestamps, recency, frequency, importance, utility, novelty, confidence, interference, strength, decay_rate, tags, associations, status, version, embedding BLOB)
+- Indici ottimizzati per retrieval veloce (scope, store, status, strength, classification, session)
+- Supporto completo per vector embeddings (BLOB storage in memory_units)
+
+**Rationale**: The complex three-table schema was chosen to maintain memory lineage and session context, providing better traceability of where and how each memory was extracted.
 
 **Path database**: `~/.true-memory/memory.db`
 
@@ -475,8 +693,11 @@ Il plugin utilizza uno schema consolidato **v1.0.0** dal primo avvio. Non ci son
 # Visualizzare log
 tail -f ~/.true-memory/plugin-debug.log
 
-# Query database
+# Query database schema
 sqlite3 ~/.true-memory/memory.db ".schema"
+
+# Query memories
+sqlite3 ~/.true-memory/memory.db "SELECT classification, summary, strength FROM memory_units WHERE status = 'active' ORDER BY strength DESC LIMIT 10;"
 
 # Cercare errori
 grep -i "error" ~/.true-memory/plugin-debug.log
@@ -515,7 +736,8 @@ Durante la fase di test e sviluppo, è preferibile che l'utente esegua manualmen
 **5 Aree di Miglioramento:**
 - **Stabilità**: Init lazy e fire-and-forget per evitare blocchi all'avvio di OpenCode.
 - **Build**: Bundle Bun-native stabile invece di esbuild (che causava crash).
-- **Precisione**: Sistema di difesa a tre livelli (negative patterns + multi-keyword + threshold) per ridurre i falsi positivi.
+- **Precisione**: Sistema di difesa a quattro livelli (negative patterns + multi-keyword + threshold + role validation) per ridurre i falsi positivi.
+- **Role-Aware Extraction**: Distingue tra messaggi Human (10x weight) e Assistant per prevenire estrazioni da liste generate dall'AI.
 - **Retrieval**: Vector embeddings (Transformers.js) e top-k contestuale invece di Jaccard similarity e iniezione globale.
 - **Decay**: Decadimento intelligente solo per memorie episodiche; le preferenze e le decisioni rimangono permanenti.
 

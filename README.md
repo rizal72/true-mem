@@ -1,197 +1,146 @@
-# True-Memory
+# True-Memory: Semantic Persistent Memory for OpenCode
 
-> **Standing on the shoulders of giants** — True-Memory builds upon the pioneering work of PsychMem, evolving the architecture based on practical experience and community feedback.
+> **Standing on the shoulders of giants** — True-Memory is an evolution of [PsychMem](https://github.com/muratg98/psychmem) v1.0.5, incorporating critical architectural improvements to solve stability, precision, and retrieval issues in AI coding assistants.
 
-True-Memory is a persistent memory system for AI coding assistants (OpenCode), designed to provide context-aware, semantically intelligent memory across coding sessions.
+True-Memory is a semantic persistent memory system that provides context-aware intelligence across coding sessions. It implements cognitive science principles to ensure your AI assistant remembers your preferences, decisions, and constraints while naturally letting trivial details fade away.
 
 ---
 
-## True-Memory vs PsychMem: Technical Comparison
+## Psychological Foundations
 
-True-Memory represents an architectural evolution of PsychMem, addressing critical stability and precision issues encountered in production environments. Below is a detailed technical comparison highlighting the key improvements.
+True-Memory is built on established cognitive science research:
 
-### Stability & Integration
+### 1. Dual-Store Memory Model (Atkinson & Shiffrin, 1968)
+Human memory operates in two stages:
+- **Short-Term Memory (STM)**: Limited capacity, rapid decay, holds task-relevant information.
+- **Long-Term Memory (LTM)**: Unlimited capacity, slow decay, consolidated through importance and repetition.
 
-**PsychMem Approach:**
-- Synchronous initialization in default export blocks OpenCode startup
-- esbuild bundling with `--external` flags causes crashes in the OpenCode runtime
-- Optional peer dependencies lead to unresolved import errors
-- SDK-dependent logger crashes when plugin context is not fully initialized
+### 2. Forgetting Curve (Ebbinghaus, 1885)
+Memory strength decays exponentially over time without reinforcement:
+$$S(t) = S_0 e^{-\lambda t}$$
+Where $S(t)$ is the strength at time $t$, $S_0$ is the initial strength, and $\lambda$ is the decay rate.
 
-**True-Memory Improvements:**
-- **Lazy initialization**: Memory database loads only on first access, preventing startup blocks
-- **Bun-native bundling**: Uses `bun build` instead of esbuild, ensuring OpenCode compatibility
-- **Regular dependencies**: All dependencies are explicitly declared, eliminating peer dependency resolution issues
-- **File-based logger**: Robust logging independent of SDK context, preventing crash cascades
+### 3. Working Memory Capacity (Miller, 1956)
+Humans can hold approximately **7 ± 2 items** in working memory. True-Memory respects this limit to prevent "context bloat" and ensure the LLM focuses on the most relevant information.
 
-### Precision
+---
 
-**PsychMem Approach:**
-- Single keyword matching leads to high false positive rates
-- Simple pattern extraction without negative filtering
-- No confidence threshold, extracts everything that matches patterns
+## The True-Memory Algorithm: The 5 Pillars
 
-**True-Memory Improvements:**
-- **Three-layer defense system**:
-  1. **Negative patterns**: Explicit filters to exclude known false positives (e.g., "don't remember", "forget about")
-  2. **Multi-keyword requirement**: Requires multiple pattern matches before classification
-  3. **Confidence threshold**: Minimum threshold to validate memory extraction
-- **Reduced false positives**: Significantly lowers noise in stored memories
-- **Higher quality memory**: Only relevant, well-validated information is retained
+True-Memory improves upon traditional implementations by addressing five critical flaws in AI memory systems:
 
-### Semantic Retrieval
+### 1. Selective Decay (Episodic vs. Semantic)
+**The Problem**: Traditional systems apply time-based decay to everything. If you don't mention a critical project constraint for a week, the AI forgets it.
+**The Fix**: We decouple **Episodic Memory** (temporary observations like "Yesterday we struggled with auth") from **Semantic Memory** (permanent facts like "This project uses strict TypeScript"). Episodic memory decays exponentially, while Semantic memory is permanent until explicitly revoked or updated.
 
-**PsychMem Approach:**
-- Jaccard similarity based on word overlap
-- Keyword matching without understanding semantic meaning
-- Global injection of all stored memories into context
+### 2. Semantic Vector Embeddings
+**The Problem**: Keyword-based matching (Jaccard Similarity) is brittle. "The database is broken" and "Postgres keeps crashing" have zero word overlap but mean the same thing.
+**The Fix**: We use **dense vector embeddings** (via Transformers.js) and **Cosine Similarity**. This allows the system to understand the *meaning* of your conversations, catching semantic overlaps that keywords would miss.
 
-**True-Memory Improvements:**
-- **Vector embeddings**: Uses Transformers.js to generate semantic embeddings for each memory
-- **Cosine similarity**: Measures semantic similarity, not just keyword overlap
-- **Top-k contextual retrieval**: Injects only the most relevant memories based on current query context
-- **Cross-session continuity**: Maintains context across sessions while avoiding context bloat
-- **Intra-session limits**: Retrieval is strategically limited to session start/first message to prevent oscillations
+### 3. Contextual Retrieval (Stage 3)
+**The Problem**: Injecting all stored memories into every session bloats the context window and causes hallucinations.
+**The Fix**: We implement **Stage 3: Contextual Retrieval**. The system embeds your current prompt and performs a nearest-neighbor vector search. Only the **top-k** most relevant memories are injected, keeping the context lean and focused.
 
-### Intelligent Decay
+### 4. Non-Blocking Async Extraction
+**The Problem**: Processing memory after every message can double latency and block the UI.
+**The Fix**: True-Memory runs extraction as an **asynchronous background queue** with **500ms debounce**. The agent responds to you immediately, while a background process handles the scoring and storage without any perceptible lag.
 
-**PsychMem Approach:**
-- Temporal decay applied to all memory types uniformly
-- Preferences and decisions decay over time, potentially losing important context
+### 5. Intelligent Reconsolidation
+**The Problem**: Automatically overwriting memories based on partial similarity is destructive.
+**The Fix**: When high semantic similarity is detected, the system uses a **reconsolidation heuristic** to determine if the new information *conflicts* with, *complements*, or *duplicates* existing memory, ensuring nuanced updates instead of blind overwrites.
 
-**True-Memory Improvements:**
-- **Selective decay**: Only episodic memories (short-term observations) decay after 7 days
-- **Permanent storage**: Constraints, preferences, learning, procedural, decision, bugfix, and semantic memories persist indefinitely
-- **Context preservation**: Important decisions and user preferences remain available across all future sessions
-- **Smart consolidation**: Automatically promotes relevant memories from short-term to long-term storage
+---
 
-### User Experience
+## The 3-Stage Pipeline
 
-**PsychMem Approach:**
-- Synchronous extraction blocks the UI during memory operations
-- No debouncing causes redundant extractions
-- Memory echo: System extracts its own injected content, creating feedback loops
+1.  **Stage 1: Context Sweep**: Uses multilingual patterns (15 languages including full Italian support) and structural analysis (typography, repetition) to identify candidate memories.
+2.  **Stage 2: Selective Memory**: Scores candidates using a **7-feature model** (Recency, Frequency, Importance, Utility, Novelty, Confidence, Interference) with a **four-layer defense system**:
+    - Layer 1: Negative Patterns (filter out known false positives)
+    - Layer 2: Multi-Keyword Scoring (require 2+ signals)
+    - Layer 3: Confidence Threshold (store only if score ≥ 0.6)
+    - Layer 4: Role Validation (Human-only for user-level classifications)
+3.  **Stage 3: Contextual Retrieval**: Performs semantic search against the database to inject only the most relevant context for your current task.
 
-**True-Memory Improvements:**
-- **Fire-and-forget extraction**: Asynchronous, non-blocking memory operations
-- **Debounced processing**: 500ms debounce prevents redundant extractions
-- **Memory echo prevention**: Filters out injected memory content during text extraction
-- **Smooth UI**: No perceptible lag during memory operations, ESC responds instantly
-- **Reconsolidation**: Vector-based conflict resolution without LLM overhead
+### Role-Aware Extraction
+
+True-Memory distinguishes between Human and Assistant messages to improve accuracy:
+
+- **Human Messages**: Receive a 10x weight multiplier for intent signals, ensuring user preferences and decisions are prioritized.
+- **Role Validation**: User-level classifications (preference, constraint, learning, procedural) MUST originate from Human messages.
+- **Assistant Context**: Assistant messages provide supporting context but are not primary sources for user-level memories.
+- **Assistant List Detection**: Automatically filters out AI-generated lists that rephrase user preferences.
+
+This prevents false positives from Assistant-generated content while preserving the contextual value of AI responses.
+
+### Multilingual Precision
+
+True-Memory supports **15 languages** for memory extraction, with comprehensive support for **Italian** including:
+
+- **Explicit Intent Patterns**: `ricorda questo`, `ricordati che`, `ricorda che`, `memorizza questo`, `memorizza che`, `memorizziamo`, `ricordiamoci che`, `ricordiamoci di`, `tieni a mente`, `nota che`
+- **Classification Keywords**: Full Italian keyword support across all memory types (preference, constraint, decision, learning, bugfix, procedural)
+
+This ensures that users can express preferences, constraints, and decisions naturally in Italian, and the system will correctly classify and store them.
 
 ---
 
 ## Memory Classifications
 
 | Type | Decay | Default Store | Scope | Example |
-|------|-------|---------------|-------|---------|
+| :--- | :--- | :--- | :--- | :--- |
 | **constraint** | Never | STM | User (Global) | "Never use `var`" |
 | **preference** | Never | STM | User (Global) | "Prefers functional style" |
 | **learning** | Never | LTM (auto) | User (Global) | "Learned bun:sqlite API" |
-| **procedural** | Never | STM | User (Global) | "Run tests before commit" |
 | **decision** | Never | LTM (auto) | Project (Local) | "Decided SQLite over Postgres" |
 | **bugfix** | Never | LTM (auto) | Project (Local) | "Fixed null pointer in auth" |
-| **semantic** | Never | STM | Project (Local) | "API uses REST, not GraphQL" |
 | **episodic** | Yes (7 days) | STM | Project (Local) | "Yesterday we refactored auth" |
-
-**Dual-Scope Memory Logic:**
-- **User-scoped memories** (constraint, preference, learning, procedural) are stored with `NULL project_scope` and are injected across **all projects**.
-- **Project-scoped memories** (decision, bugfix, semantic, episodic) are tied to the **specific worktree path** and only injected when the current project matches.
 
 ---
 
 ## Getting Started
 
 ### Installation
-
-Install the plugin via file:// in your OpenCode configuration:
+Add the plugin to your `opencode.jsonc` configuration:
 
 ```json
 {
   "plugin": [
-    "file:///Users/riccardosallusti/Documents/_PROGETTI/true-memory"
+    "true-memory"
   ]
 }
 ```
 
-### Build
-
-The plugin uses Bun's native bundler for maximum compatibility:
-
-```bash
-bun build src/index.ts --outdir dist --target bun --format esm
+For local development, you can point directly to your build directory:
+```json
+{
+  "plugin": [
+    "file:///path/to/true-memory"
+  ]
+}
 ```
 
-### Debug
-
-View debug logs and inspect the memory database:
-
+### Basic Commands
 ```bash
 # View debug logs
 tail -f ~/.true-memory/plugin-debug.log
 
-# Query database schema
-sqlite3 ~/.true-memory/memory.db ".schema"
+# Inspect memory database
+sqlite3 ~/.true-memory/memory.db "SELECT classification, summary FROM memory_units WHERE status = 'active';"
 
-# Search for errors
-grep -i "error" ~/.true-memory/plugin-debug.log
+# View session history
+sqlite3 ~/.true-memory/memory.db "SELECT id, project, started_at, status FROM sessions;"
+
+# Check raw events for audit trail
+sqlite3 ~/.true-memory/memory.db "SELECT hook_type, timestamp FROM events ORDER BY timestamp DESC LIMIT 10;"
 ```
 
 ---
 
-## Architecture
-
-```
-true-memory/
-├── src/
-│   ├── index.ts                 # Entry point with fire-and-forget
-│   ├── types.ts                 # Type definitions + SDK re-exports
-│   ├── config.ts                # Default config
-│   ├── logger.ts                # File-based logger
-│   ├── storage/
-│   │   ├── sqlite-adapter.ts    # bun:sqlite + node:sqlite
-│   │   └── database.ts          # MemoryDatabase class
-│   ├── memory/
-│   │   ├── patterns.ts          # Multilingual patterns (670 lines)
-│   │   ├── negative-patterns.ts # False positive prevention
-│   │   ├── classifier.ts        # Three-layer defense
-│   │   ├── embeddings.ts        # Transformers.js, cosine similarity
-│   │   └── reconsolidate.ts     # Vector-based conflict resolution
-│   ├── extraction/
-│   │   └── queue.ts             # Fire-and-forget extraction queue
-│   └── adapters/
-│       └── opencode/
-│           └── index.ts         # Full extraction + injection
-├── dist/
-│   └── index.js                 # Bundle (1.6M)
-├── package.json
-├── tsconfig.json
-├── .gitignore
-├── AGENTS.md
-├── PLAN.md
-└── README.md
-```
-
----
-
-## Key Features
-
-- ✅ **Zero dependencies**: Uses built-in `bun:sqlite` and `node:sqlite`
-- ✅ **Async extraction**: Non-blocking fire-and-forget architecture
-- ✅ **Vector embeddings**: Semantic search with Transformers.js
-- ✅ **Intelligent decay**: Selective decay for episodic memories only
-- ✅ **False positive prevention**: Three-layer defense system
-- ✅ **Context-aware retrieval**: Top-k injection based on semantic relevance
-- ✅ **Dual-scope memory**: User-global and project-local memory isolation
+## Privacy & Performance
+- **Local Processing**: All embeddings and memory extraction happen locally using Transformers.js. Your code and memories never leave your machine.
+- **Lean Bundle**: Optimized build (~81KB) with lazy-loading to ensure zero impact on OpenCode startup time.
+- **Resource Management**: Automatic idle timeout for the embedding pipeline to keep memory usage low.
 
 ---
 
 ## Acknowledgments
-
-True-Memory is inspired by and builds upon [PsychMem](https://github.com/muratg98/psychmem) v1.0.5, which pioneered persistent memory for AI coding assistants.
-
----
-
-## License
-
-[Specify your license here]
+True-Memory is inspired by and builds upon the pioneering work of **PsychMem v1.0.5**. We are grateful for their contribution to the AI coding assistant ecosystem.
