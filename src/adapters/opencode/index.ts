@@ -211,11 +211,10 @@ async function handleSessionCreated(
   sessionId?: string
 ): Promise<void> {
   if (!sessionId) return;
-  
+
   state.currentSessionId = sessionId;
-  state.injectedSessions.add(sessionId);
   log(`Session created: ${sessionId}`);
-  
+
   // Run maintenance: decay and consolidation
   try {
     const decayed = state.db.applyDecay();
@@ -226,18 +225,9 @@ async function handleSessionCreated(
   } catch (err) {
     log(`Maintenance error: ${err}`);
   }
-  
+
   // Create session in DB
   state.db.createSession(sessionId, state.worktree, { agentType: 'opencode' });
-  
-  // Inject memories
-  const memories = await getRelevantMemories(state, state.config.opencode.maxSessionStartMemories);
-  
-  if (memories.length > 0) {
-    const memoryContext = formatMemoriesForInjection(memories, state.worktree);
-    await injectContext(state, sessionId, memoryContext);
-    log(`Injected ${memories.length} memories on session start`);
-  }
 }
 
 async function processSessionIdle(

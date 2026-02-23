@@ -237,11 +237,15 @@ export function classifyWithExplicitIntent(
     return { classification: bestClassification, confidence: boostedConfidence, isolatedContent };
   }
 
-  // Fall back to normal classification if isolated content doesn't match
-  log('Debug: No classification found in isolated content, falling back to normal classification');
-  const fallbackClassification = inferClassification(text);
-  const fallbackConfidence = fallbackClassification ? calculateClassificationScore(text, fallbackClassification) : 0;
-  return { classification: fallbackClassification, confidence: fallbackConfidence, isolatedContent: text };
+  // If explicit intent detected but no specific classification found,
+  // assign semantic classification with high confidence (0.85)
+  // This ensures "Ricordati che [fatto generico]" is always stored
+  log('Debug: No specific classification found for explicit intent, assigning semantic classification');
+  return {
+    classification: 'semantic',
+    confidence: 0.85,
+    isolatedContent
+  };
 }
 
 // =============================================================================

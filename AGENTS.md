@@ -93,6 +93,71 @@ Stato attuale:
 - Implementata logica di riconsolidazione per evitare duplicati e gestire conflitti.
 - Plugin pronto per il rilascio.
 
+### 🟢 FIX: First-Prompt Injection Strategy
+
+**Problema**: L'iniezione di memorie al session start poteva creare context bloat o recuperare memorie non pertinenti alla task corrente.
+
+**Soluzione**: Implementare first-prompt injection con contextual vector search:
+- Injection avviene SOLO dopo il primo prompt dell'utente in ogni session (nuova o continuata)
+- Il testo del prompt dell'utente viene usato per generare embedding e fare vector search
+- Recupera top-k memorie semanticamente correlate al task corrente
+- In `handleMessageUpdated`: trigger injection quando `role === 'user'` e sessione non ancora iniettata
+- Continuano le sessioni tracciate con `state.injectedSessions` Set per evitare iniezioni duplicate
+
+**Implementazione**:
+```typescript
+// In handleMessageUpdated (src/adapters/opencode/index.ts):
+const role = info?.role ?? (eventProps?.role as string | undefined);
+if (role === 'user' && !state.injectedSessions.has(sessionId)) {
+  state.injectedSessions.add(sessionId);
+
+  // Extract user's message content for contextual retrieval
+  let userQuery: string | undefined;
+  const parts = info?.parts ?? (eventProps?.parts as Part[] | undefined);
+  if (parts && parts.length > 0) {
+    for (const part of parts) {
+      if (part.type === 'text' && 'text' in part) {
+        userQuery = (part as { text: string }).text;
+        break;
+      }
+    }
+  }
+
+  const memories = await getRelevantMemories(state, limit, userQuery);
+  // Inject memories...
+}
+```
+
+Vedi `src/adapters/opencode/index.ts` per codice dettagliato.
+
+### 🟢 FIX: Semantic Fallback for Explicit Intent
+
+**Problema**: Frasi con intento esplicito ("Ricordati che...") ma senza keyword di classificazione specifiche venivano ignorate o mal classificate.
+
+**Soluzione**: Implementare semantic fallback con alta confidence:
+- Quando è rilevato `explicit_remember` ma nessuna classificazione raggiunge score ≥ 0.4
+- Assegnare automaticamente classificazione `semantic` con confidence 0.85
+- Questo garantisce che espliciti "ricorda questo" vengano sempre memorizzati
+- L'alta confidence (0.85) riflette l'intento esplicito dell'utente
+
+**Implementazione**:
+```typescript
+// In classifyWithExplicitIntent (src/memory/classifier.ts):
+if (bestScore >= 0.4 && bestClassification) {
+  const boostedConfidence = Math.max(0.85, bestScore);
+  return { classification: bestClassification, confidence: boostedConfidence, isolatedContent };
+}
+
+// Semantic fallback for explicit intent
+return {
+  classification: 'semantic',
+  confidence: 0.85,
+  isolatedContent
+};
+```
+
+Vedi `src/memory/classifier.ts` per codice dettagliato.
+
 ### 🟢 BUG RISOLTO: esbuild → bun build
 
 **Sintomo originale**: OpenCode si avvia, schermo nero, prompt non appare mai.
@@ -272,15 +337,35 @@ Vedi `PLAN.md` per codice dettagliato.
 
 ### 🟢 FIX: Resource Leaks & Crashes
 
-**Problema**: Transformers.js pipeline remained loaded indefinitely, causing Bun crashes and high CPU usage after prolonged sessions (~70% CPU, ~150MB RAM leak).
+**Problema**: Transformers.js pipeline rimaneva caricato indefinitamente, causando crash di Bun e alto utilizzo CPU dopo sessioni prolungate (~70% CPU, ~150MB RAM leak).
 
-**Soluzione**: Implementare idle timeout e proper disposal in `src/memory/embeddings.ts`:
-- 5-minute idle timeout per il pipeline
+**Soluzione**: Implementare ShutdownManager e idle timeout per proper cleanup:
+- 5-minute idle timeout per il embedding pipeline
 - Auto-dispose quando non usato per 5+ minuti
 - Lazy reload al prossimo `embed()` call
+- Graceful shutdown con `ShutdownManager` per chiudere database e risorse
 
 **Implementazione**:
 ```typescript
+// src/shutdown.ts - ShutdownManager per graceful resource cleanup
+class ShutdownManager {
+  private static instance: ShutdownManager;
+  private handlers: ShutdownHandler[] = [];
+
+  public registerHandler(name: string, handler: () => void | Promise<void>): void {
+    this.handlers.push({ name, handler });
+  }
+
+  public async executeShutdown(reason: string): Promise<void> {
+    const reversedHandlers = [...this.handlers].reverse();
+    for (const { name, handler } of reversedHandlers) {
+      log(`Executing shutdown handler: ${name}`);
+      await handler();
+    }
+  }
+}
+
+// src/memory/embeddings.ts - Idle timeout per embedding pipeline
 let lastUsedTime = Date.now();
 let idleTimeoutId: any = null;
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -303,7 +388,7 @@ function resetIdleTimeout(): void {
   if (idleTimeoutId) {
     clearTimeout(idleTimeoutId);
   }
-  
+
   idleTimeoutId = setTimeout(async () => {
     logger.info('Embedding pipeline idle timeout, disposing...');
     await disposePipeline();
@@ -311,7 +396,18 @@ function resetIdleTimeout(): void {
 }
 ```
 
-Vedi `PLAN.md` per codice dettagliato.
+**Handler Registration** (in `src/adapters/opencode/index.ts`):
+```typescript
+// Register database shutdown handler
+registerShutdownHandler('database', () => db.close());
+
+// Trigger graceful shutdown on server disposal
+case 'server.instance.disposed':
+  await executeShutdown('server.instance.disposed');
+  break;
+```
+
+Vedi `src/shutdown.ts` e `src/memory/embeddings.ts` per codice dettagliato.
 
 ### 🟢 FIX: Meta-Talk Filtering
 

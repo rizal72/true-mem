@@ -37,9 +37,16 @@ True-Memory improves upon traditional implementations by addressing five critica
 **The Problem**: Keyword-based matching (Jaccard Similarity) is brittle. "The database is broken" and "Postgres keeps crashing" have zero word overlap but mean the same thing.
 **The Fix**: We use **dense vector embeddings** (via Transformers.js) and **Cosine Similarity**. This allows the system to understand the *meaning* of your conversations, catching semantic overlaps that keywords would miss.
 
-### 3. Contextual Retrieval (Stage 3)
-**The Problem**: Injecting all stored memories into every session bloats the context window and causes hallucinations.
-**The Fix**: We implement **Stage 3: Contextual Retrieval**. The system embeds your current prompt and performs a nearest-neighbor vector search. Only the **top-k** most relevant memories are injected, keeping the context lean and focused.
+### 3. Contextual Retrieval (First-Prompt Injection)
+**The Problem**: Injecting all stored memories into every session bloats the context window and may retrieve irrelevant information before the user's actual task is known.
+
+**The Fix**: We implement **First-Prompt Injection** with contextual vector search:
+- Memory injection happens ONLY after the first user prompt in each session (new or continued)
+- The user's prompt text is used to generate an embedding and perform semantic vector search
+- Retrieves top-k memories semantically relevant to the current task
+- Tracks injected sessions with a Set to prevent duplicate injections
+
+This ensures context is lean, focused, and directly relevant to what the user is actively working on, not generic project-wide information.
 
 ### 4. Non-Blocking Async Extraction
 **The Problem**: Processing memory after every message can double latency and block the UI.
@@ -71,6 +78,16 @@ True-Memory distinguishes between Human and Assistant messages to improve accura
 - **Assistant List Detection**: Automatically filters out AI-generated lists that rephrase user preferences.
 
 This prevents false positives from Assistant-generated content while preserving the contextual value of AI responses.
+
+### Explicit Intent & Semantic Fallback
+
+True-Memory handles explicit memory requests ("Ricorda questo...", "Remember that...") intelligently:
+
+- **Explicit Intent Detection**: Recognizes multilingual patterns for explicit remember commands
+- **Sentence Isolation**: Extracts and classifies only the sentence after the marker, avoiding context contamination
+- **Semantic Fallback**: If explicit intent is detected but no specific classification reaches the threshold (score ≥ 0.4), automatically assigns `semantic` classification with high confidence (0.85)
+
+This ensures that all explicit "remember this" commands are always stored, even when they contain generic information that doesn't fit other categories.
 
 ### Multilingual Precision
 
@@ -138,7 +155,11 @@ sqlite3 ~/.true-memory/memory.db "SELECT hook_type, timestamp FROM events ORDER 
 ## Privacy & Performance
 - **Local Processing**: All embeddings and memory extraction happen locally using Transformers.js. Your code and memories never leave your machine.
 - **Lean Bundle**: Optimized build (~81KB) with lazy-loading to ensure zero impact on OpenCode startup time.
-- **Resource Management**: Automatic idle timeout for the embedding pipeline to keep memory usage low.
+- **Resource Management**:
+  - Automatic idle timeout for the embedding pipeline (5 minutes) to keep memory usage low.
+  - Graceful shutdown via `ShutdownManager` ensures database connections and resources are properly closed.
+  - Prevents Bun crashes and resource leaks during session termination.
+- **Stability**: Robust error handling and timeout mechanisms (3-second handler timeout, LIFO shutdown order) ensure clean exits.
 
 ---
 
