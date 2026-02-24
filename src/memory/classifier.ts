@@ -197,52 +197,29 @@ export function classifyWithExplicitIntent(
     /\bnote that\b:?\s*/gi,
   ];
 
-  // Find the LAST sentence containing the explicit marker
-  const sentences = text.match(/[^.!?]*[.!?]/g) || [];
-  let lastMatchingSentence = '';
+  // Find the FIRST occurrence of any explicit remember marker in the entire text
   let isolatedContent = '';
+  let firstMatch: { index: number; match: RegExpExecArray } | null = null;
 
-  for (const sentence of sentences) {
-    const trimmed = sentence.trim();
-
-    // Check each pattern with lastIndex reset for regex safety
-    for (const pattern of markerPatterns) {
-      pattern.lastIndex = 0; // Reset regex lastIndex before testing
-      if (pattern.test(trimmed)) {
-        lastMatchingSentence = trimmed;
-
-        // Extract content AFTER the marker
-        pattern.lastIndex = 0; // Reset again for exec
-        const match = pattern.exec(trimmed);
-        if (match && match.index !== undefined) {
-          isolatedContent = trimmed.substring(match.index + match[0].length).trim();
-        }
-        break; // Move to next sentence after finding match
+  for (const pattern of markerPatterns) {
+    pattern.lastIndex = 0; // Reset regex before use
+    const match = pattern.exec(text);
+    if (match && match.index !== undefined) {
+      if (!firstMatch || match.index < firstMatch.index) {
+        firstMatch = { index: match.index, match };
       }
     }
   }
 
-  // Fallback: if no sentence with punctuation matched, try the entire text
-  // This handles cases where text doesn't end with punctuation (e.g., truncated messages)
-  if (!isolatedContent) {
-    const trimmedText = text.trim();
-    for (const pattern of markerPatterns) {
-      pattern.lastIndex = 0;
-      if (pattern.test(trimmedText)) {
-        pattern.lastIndex = 0;
-        const match = pattern.exec(trimmedText);
-        if (match && match.index !== undefined) {
-          isolatedContent = trimmedText.substring(match.index + match[0].length).trim();
-          log('Debug: Used entire text as fallback for sentence extraction');
-        }
-        break;
-      }
-    }
+  // Extract ALL text after the first marker found
+  if (firstMatch) {
+    isolatedContent = text.substring(firstMatch.index + firstMatch.match[0].length).trim();
+    log('Debug: Extracted content after first explicit marker:', isolatedContent);
   }
 
-  // If no content isolated, fall back to normal classification
+  // If no marker found, fall back to normal classification
   if (!isolatedContent) {
-    log('Debug: No content isolated, falling back to normal classification');
+    log('Debug: No explicit marker found, falling back to normal classification');
     const classification = inferClassification(text);
     const confidence = classification ? calculateClassificationScore(text, classification) : 0;
     return { classification, confidence, isolatedContent: text };
