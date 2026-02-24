@@ -412,8 +412,7 @@ async function processSessionIdle(
             // - User-level classifications: global scope (all projects)
             // - Explicit intent semantic: also global (user said "remember this")
             const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
-            const isExplicitIntentSemantic = classification === 'semantic' && confidence >= 0.85;
-            const isUserLevel = userLevelClassifications.includes(classification) || isExplicitIntentSemantic;
+            const isUserLevel = userLevelClassifications.includes(classification);
             const scope = isUserLevel ? null : state.worktree;
 
             // Determine store: STM vs LTM

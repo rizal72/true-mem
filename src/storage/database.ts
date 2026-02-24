@@ -506,7 +506,9 @@ export class MemoryDatabase {
     params.push(limit);
 
     const rows = this.db.prepare(query).all(...params) as any[];
-    return rows.map(this.rowToMemoryUnit.bind(this));
+    const memories = rows.map(this.rowToMemoryUnit.bind(this));
+    log(`Debug: getMemoriesByScope returned ${memories.length} memories (worktree="${currentProject}", hasValidProject=${hasValidProject}, limit=${limit}, store=${store})`);
+    return memories;
   }
 
   /**
