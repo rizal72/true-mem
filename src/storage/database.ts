@@ -320,7 +320,7 @@ export class MemoryDatabase {
     sourceEventIds: string[],
     features: Partial<{
       sessionId: string;
-      projectScope: string;
+      projectScope: string | null | undefined;
       importance: number;
       utility: number;
       novelty: number;
@@ -336,7 +336,7 @@ export class MemoryDatabase {
 
     try {
       // Phase 7: Reconsolidation - Check for similar memories using Jaccard similarity
-      const similarMemories = await this.vectorSearch(summary, features.projectScope, 1);
+      const similarMemories = await this.vectorSearch(summary, features.projectScope ?? undefined, 1);
 
       if (similarMemories.length > 0) {
         const existingMemory = similarMemories[0];
@@ -350,7 +350,7 @@ export class MemoryDatabase {
               classification,
               summary,
               sourceEventIds,
-              projectScope: features.projectScope,
+              projectScope: features.projectScope ?? undefined,
               sessionId: features.sessionId,
             };
 
@@ -386,7 +386,7 @@ export class MemoryDatabase {
         classification,
         summary,
         sourceEventIds,
-        projectScope: features.projectScope,
+        projectScope: features.projectScope ?? undefined,
         createdAt: now,
         updatedAt: now,
         lastAccessedAt: now,
@@ -470,15 +470,32 @@ export class MemoryDatabase {
     const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
     const userClassPlaceholders = userLevelClassifications.map(() => '?').join(', ');
 
-    let query = `
-      SELECT * FROM memory_units
-      WHERE status = 'active'
-      AND (
-        classification IN (${userClassPlaceholders})
-        OR (project_scope IS NOT NULL AND project_scope = ?)
-      )
-    `;
-    const params: any[] = [...userLevelClassifications, currentProject ?? ''];
+    // Check if currentProject is valid (not empty, not just '/')
+    const hasValidProject = currentProject && currentProject !== '/' && currentProject.length > 1;
+
+    let query: string;
+    let params: any[];
+
+    if (hasValidProject) {
+      // Normal case: filter by scope (user-level global + project-specific)
+      query = `
+        SELECT * FROM memory_units
+        WHERE status = 'active'
+        AND (
+          (classification IN (${userClassPlaceholders}) AND project_scope IS NULL)
+          OR (project_scope IS NOT NULL AND project_scope = ?)
+        )
+      `;
+      params = [...userLevelClassifications, currentProject];
+    } else {
+      // Fallback: return ALL memories when project is not determinable
+      // This ensures injection works even when worktree resolution fails
+      query = `
+        SELECT * FROM memory_units
+        WHERE status = 'active'
+      `;
+      params = [];
+    }
 
     if (store) {
       query += ` AND store = ?`;
@@ -516,7 +533,7 @@ export class MemoryDatabase {
       SELECT * FROM memory_units
       WHERE status = 'active'
       AND (
-        classification IN (${userClassPlaceholders})
+        (classification IN (${userClassPlaceholders}) AND project_scope IS NULL)
         OR (project_scope IS NOT NULL AND project_scope = ?)
       )
       LIMIT 1000

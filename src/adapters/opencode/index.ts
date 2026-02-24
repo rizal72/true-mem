@@ -206,7 +206,7 @@ export async function createTrueMemoryPlugin(
     },
 
     'experimental.chat.system.transform': async (input, output) => {
-      log('experimental.chat.system.transform: Injecting global memories');
+      log('experimental.chat.system.transform: Injecting all relevant memories');
 
       try {
         const injectionState: InjectionState = {
@@ -214,17 +214,11 @@ export async function createTrueMemoryPlugin(
           worktree: state.worktree,
         };
 
-        // Retrieve global memories (user-level: constraints, preferences, learning, procedural)
-        const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
-        const allMemories = injectionState.db.getMemoriesByScope(undefined, 20);
+        // Retrieve ALL relevant memories for current project (both user-level and project-level)
+        const allMemories = injectionState.db.getMemoriesByScope(state.worktree, 20);
 
-        // Filter only user-level memories for global context
-        const globalMemories = allMemories.filter(m =>
-          userLevelClassifications.includes(m.classification)
-        );
-
-        if (globalMemories.length > 0) {
-          const wrappedContext = wrapMemories(globalMemories, state.worktree, 'global');
+        if (allMemories.length > 0) {
+          const wrappedContext = wrapMemories(allMemories, state.worktree, 'global');
 
           // Handle system as string[] - append to the last element
           const systemArray = Array.isArray(output.system) ? output.system : [output.system];
@@ -233,7 +227,7 @@ export async function createTrueMemoryPlugin(
 
           output.system = systemArray;
 
-          log(`Global injection: ${globalMemories.length} memories injected into system prompt`);
+          log(`Global injection: ${allMemories.length} memories injected into system prompt`);
         }
       } catch (error) {
         log(`Global injection failed: ${error}`);
