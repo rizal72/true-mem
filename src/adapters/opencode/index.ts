@@ -412,7 +412,12 @@ async function processSessionIdle(
             // - User-level classifications: global scope (all projects)
             // - Explicit intent semantic: also global (user said "remember this")
             const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
-            const isUserLevel = userLevelClassifications.includes(classification);
+            // Determine scope: User-level (global) vs Project-level (local)
+            // - Explicit intent (confidence >= 0.85) → User-level (user explicitly said "remember this")
+            // - User-level classifications (constraint, preference, learning, procedural) → User-level
+            // - Everything else → Project-level
+            const isExplicitIntent = confidence >= 0.85;
+            const isUserLevel = userLevelClassifications.includes(classification) || isExplicitIntent;
             const scope = isUserLevel ? null : state.worktree;
 
             // Determine store: STM vs LTM
@@ -420,7 +425,6 @@ async function processSessionIdle(
             // - Auto-promote classifications → LTM (bugfix, learning, decision)
             // - Everything else → STM
             const autoPromoteClassifications = ['bugfix', 'learning', 'decision'];
-            const isExplicitIntent = confidence >= 0.85;
             const shouldPromoteToLtm = isExplicitIntent || autoPromoteClassifications.includes(classification);
             const store = shouldPromoteToLtm ? 'ltm' : 'stm';
 
