@@ -1,5 +1,5 @@
 /**
- * True-Memory Configuration
+ * True-Mem Configuration
  */
 
 import type { PsychMemConfig, ScoringWeights, OpenCodeConfig, SweepConfig } from './types.js';
@@ -39,7 +39,7 @@ export const DEFAULT_OPENCODE_CONFIG: OpenCodeConfig = {
 // Full default config
 export const DEFAULT_CONFIG: PsychMemConfig = {
   agentType: 'opencode',
-  dbPath: '~/.true-memory/memory.db',
+  dbPath: '~/.true-mem/memory.db',
 
   // Decay rates (per hour)
   stmDecayRate: 0.05,     // ~32-hour half-life
@@ -69,7 +69,7 @@ export const DEFAULT_CONFIG: PsychMemConfig = {
   // OpenCode-specific
   opencode: DEFAULT_OPENCODE_CONFIG,
 
-  // True-Memory improvement: decay only episodic
+  // True-Mem improvement: decay only episodic
   applyDecayOnlyToEpisodic: true,
   decayThreshold: 0.1,
 };

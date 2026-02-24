@@ -1,5 +1,5 @@
 /**
- * True-Memory Type Definitions
+ * True-Mem Type Definitions
  * Adapted from PsychMem for OpenCode
  */
 
@@ -411,7 +411,7 @@ export interface PsychMemConfig {
   sweep: SweepConfig;
   opencode: OpenCodeConfig;
   
-  // True-Memory additions
+  // True-Mem additions
   applyDecayOnlyToEpisodic?: boolean;
   decayThreshold?: number;
 }

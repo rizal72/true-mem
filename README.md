@@ -1,4 +1,4 @@
-# True-Memory
+# True-Mem
 
 > A persistent memory plugin for OpenCode with cognitive psychology-based memory management.
 
@@ -23,7 +23,7 @@
 
 ## Overview
 
-**True-Memory** is a production-ready memory plugin for OpenCode that enables AI coding agents to remember information across sessions and projects. It doesn't just store information - it manages memory like a human mind would.
+**True-Mem** is a production-ready memory plugin for OpenCode that enables AI coding agents to remember information across sessions and projects. It doesn't just store information - it manages memory like a human mind would.
 
 ---
 
@@ -35,7 +35,7 @@ If you've ever had to repeat your preferences to your AI assistant every time yo
 
 ## The Solution
 
-True-Memory automatically extracts and stores memories from your conversations:
+True-Mem automatically extracts and stores memories from your conversations:
 
 - **Preferences**: "I prefer functional style over OOP"
 - **Constraints**: "Never use `var` keyword"
@@ -49,7 +49,7 @@ Next time you open OpenCode, it remembers. No more repeating yourself.
 
 ## The Psychology Behind It
 
-What makes True-Memory different from a simple database? It's modeled after how human memory actually works:
+What makes True-Mem different from a simple database? It's modeled after how human memory actually works:
 
 **Ebbinghaus Forgetting Curve** - Episodic memories fade over time (7-day default), while preferences and decisions stay permanent. Just like your brain forgets what you had for lunch last Tuesday but remembers your favorite color.
 
@@ -81,7 +81,7 @@ What makes True-Memory different from a simple database? It's modeled after how 
 ## Installation
 
 ```bash
-npm install true-memory
+npm install true-mem
 ```
 
 Then add to your `~/.config/opencode/opencode.jsonc`:
@@ -89,7 +89,7 @@ Then add to your `~/.config/opencode/opencode.jsonc`:
 ```jsonc
 {
   "plugin": [
-    "true-memory"
+    "true-mem"
   ]
 }
 ```
@@ -100,7 +100,7 @@ Then add to your `~/.config/opencode/opencode.jsonc`:
 
 ### Automatic Extraction
 
-Just have conversations with OpenCode. True-Memory extracts relevant info in the background.
+Just have conversations with OpenCode. True-Mem extracts relevant info in the background.
 
 **What gets stored**:
 - User preferences: "I prefer TypeScript over JavaScript"
@@ -123,7 +123,7 @@ Use phrases like "Remember this:" or "Ricorda questo:" to force storage:
 ## Architecture
 
 ```
-true-memory/
+true-mem/
 ├── src/
 │   ├── index.ts                 # Entry point with fire-and-forget init
 │   ├── storage/
@@ -196,7 +196,7 @@ true-memory/
 
 ## Inspiration
 
-This project was inspired by [PsychMem](https://github.com/muratg98/psychmem) - a pioneering plugin for persistent memory in OpenCode. True-Memory builds on those ideas with a focus on cognitive psychology models and production stability.
+This project was inspired by [PsychMem](https://github.com/muratg98/psychmem) - a pioneering plugin for persistent memory in OpenCode. True-Mem builds on those ideas with a focus on cognitive psychology models and production stability.
 
 ---
 
@@ -204,10 +204,10 @@ This project was inspired by [PsychMem](https://github.com/muratg98/psychmem) - 
 
 ```bash
 # View logs
-tail -f ~/.true-memory/plugin-debug.log
+tail -f ~/.true-mem/plugin-debug.log
 
 # Query database
-sqlite3 ~/.true-memory/memory.db "SELECT classification, summary, strength FROM memory_units WHERE status = 'active' ORDER BY strength DESC LIMIT 10;"
+sqlite3 ~/.true-mem/memory.db "SELECT classification, summary, strength FROM memory_units WHERE status = 'active' ORDER BY strength DESC LIMIT 10;"
 ```
 
 ---

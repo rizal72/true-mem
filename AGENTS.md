@@ -1,13 +1,13 @@
-# True-Memory - AGENTS.md
+# True-Mem - AGENTS.md
 
 ## ⚠️ CRITICAL CONFIG
 
 ```
 PROJECTS_ROOT = ~/Documents/_PROGETTI/
-THIS_PROJECT  = ~/Documents/_PROGETTI/true-memory
+THIS_PROJECT  = ~/Documents/_PROGETTI/true-mem
 
-DATABASE      = ~/.true-memory/memory.db
-DEBUG_LOG     = ~/.true-memory/plugin-debug.log
+DATABASE      = ~/.true-mem/memory.db
+DEBUG_LOG     = ~/.true-mem/plugin-debug.log
 OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 ```
 
@@ -140,7 +140,7 @@ Vedi `src/adapters/opencode/index.ts` per codice dettagliato.
 
 **Root Cause Analysis** (tramite @oracle e @explorer):
 1. **PsychMem**: Default export awaited → blocca OpenCode startup
-2. **True-Memory (vecchio)**: Lazy init con hooks awaited → primo hook bloccante
+2. **True-Mem (vecchio)**: Lazy init con hooks awaited → primo hook bloccante
 3. **Entrambi**: Decay e consolidation nel primo hook (`session.created`) → 20-100ms di overhead
 4. **Colpevole principale**: `applyDecay()` + `runConsolidation()` scansionano TUTTE le memorie nel primo hook
 
@@ -707,7 +707,7 @@ Vedi `src/memory/negative-patterns.ts` per codice dettagliato.
 
 ## Project Overview
 
-**True-Memory** è un sistema di memoria persistente per AI coding agents (OpenCode), ispirato a [PsychMem](https://github.com/muratg98/psychmem) v1.0.5 ma con correzioni architetturali e miglioramenti.
+**True-Mem** è un sistema di memoria persistente per AI coding agents (OpenCode), ispirato a [PsychMem](https://github.com/muratg98/psychmem) v1.0.5 ma con correzioni architetturali e miglioramenti.
 
 ### Perché non PsychMem diretto?
 
@@ -716,9 +716,9 @@ PsychMem 1.0.5 funziona ma ha causato crash nelle versioni precedenti:
 - **Logger SDK-dipendente** (`ctx.client.app.log()`) → crash se contesto non pronto
 - **better-sqlite3** → deprecato dalla 1.0.4, ora usa built-in
 
-### Perché True-Memory?
+### Perché True-Mem?
 
-| Aspetto | PsychMem | True-Memory |
+| Aspetto | PsychMem | True-Mem |
 |---------|----------|-------------|
 | Dipendenze | Peer optional (risolto 1.0.5) | Dipendenze regolari |
 | Logger | SDK (può crashare) | File-based (robusto) |
@@ -939,7 +939,7 @@ if (similarity > 0.7) {
 ## Architettura Attuale
 
 ```
-true-memory/
+true-mem/
 ├── src/
 │   ├── index.ts                 # Entry point with fire-and-forget
 │   ├── types.ts                 # Type definitions + SDK re-exports
@@ -997,7 +997,7 @@ true-memory/
 ```json
 {
   "plugin": [
-    "file:///Users/riccardosallusti/Documents/_PROGETTI/true-memory"
+    "file:///Users/riccardosallusti/Documents/_PROGETTI/true-mem"
   ]
 }
 ```
@@ -1018,7 +1018,7 @@ Il plugin utilizza uno schema consolidato **v1.0.0** dal primo avvio. Non ci son
 
 **Rationale**: The complex three-table schema was chosen to maintain memory lineage and session context, providing better traceability of where and how each memory was extracted.
 
-**Path database**: `~/.true-memory/memory.db`
+**Path database**: `~/.true-mem/memory.db`
 
 ---
 
@@ -1026,16 +1026,16 @@ Il plugin utilizza uno schema consolidato **v1.0.0** dal primo avvio. Non ci son
 
 ```bash
 # Visualizzare log
-tail -f ~/.true-memory/plugin-debug.log
+tail -f ~/.true-mem/plugin-debug.log
 
 # Query database schema
-sqlite3 ~/.true-memory/memory.db ".schema"
+sqlite3 ~/.true-mem/memory.db ".schema"
 
 # Query memories
-sqlite3 ~/.true-memory/memory.db "SELECT classification, summary, strength FROM memory_units WHERE status = 'active' ORDER BY strength DESC LIMIT 10;"
+sqlite3 ~/.true-mem/memory.db "SELECT classification, summary, strength FROM memory_units WHERE status = 'active' ORDER BY strength DESC LIMIT 10;"
 
 # Cercare errori
-grep -i "error" ~/.true-memory/plugin-debug.log
+grep -i "error" ~/.true-mem/plugin-debug.log
 ```
 
 ---
@@ -1052,7 +1052,7 @@ Quando si lancia un task in background (`background_task`), NON controllare lo s
 
 ### Best Practice: Manual Cleanup for Testing
 
-Durante la fase di test e sviluppo, è preferibile che l'utente esegua manualmente la pulizia delle directory persistenti (es. `rm -rf ~/.true-memory/`) invece di delegare il task all'AI. Questo permette di risparmiare token e garantisce un controllo totale sull'ambiente di test.
+Durante la fase di test e sviluppo, è preferibile che l'utente esegua manualmente la pulizia delle directory persistenti (es. `rm -rf ~/.true-mem/`) invece di delegare il task all'AI. Questo permette di risparmiare token e garantisce un controllo totale sull'ambiente di test.
 
 ---
 
@@ -1064,9 +1064,9 @@ Durante la fase di test e sviluppo, è preferibile che l'utente esegua manualmen
 
 ---
 
-## Confronto Tecnico: True-Memory vs PsychMem
+## Confronto Tecnico: True-Mem vs PsychMem
 
-**Premessa**: PsychMem ha aperto la strada alla memoria persistente per AI coding assistant. True-Memory è un'evoluzione architetturale basata sull'esperienza pratica.
+**Premessa**: PsychMem ha aperto la strada alla memoria persistente per AI coding assistant. True-Mem è un'evoluzione architetturale basata sull'esperienza pratica.
 
 **5 Aree di Miglioramento:**
 - **Stabilità**: Init lazy e fire-and-forget per evitare blocchi all'avvio di OpenCode.

@@ -1,5 +1,5 @@
 /**
- * True-Memory Reconsolidation Module
+ * True-Mem Reconsolidation Module
  * Handles memory deduplication, conflict resolution, and complement detection
  * Designed for future LLM-based conflict resolution
  */

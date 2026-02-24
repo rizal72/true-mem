@@ -1,5 +1,5 @@
 /**
- * True-Memory Logger
+ * True-Mem Logger
  * File-based logging to avoid SDK crashes
  */
 
@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, mkdirSync, statSync, renameSync } from 'fs'
 import { homedir } from 'os';
 import { join } from 'path';
 
-const LOG_DIR = join(homedir(), '.true-memory');
+const LOG_DIR = join(homedir(), '.true-mem');
 const LOG_FILE = join(LOG_DIR, 'plugin-debug.log');
 const LOG_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 

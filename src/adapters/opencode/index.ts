@@ -1,5 +1,5 @@
 /**
- * True-Memory OpenCode Adapter
+ * True-Mem OpenCode Adapter
  */
 
 const BUILD_TIME = "2026-02-23T09:45:00.000Z";
@@ -114,11 +114,11 @@ export async function createTrueMemoryPlugin(
     client: ctx.client,
   };
 
-  log(`True-Memory initialized — worktree=${worktree}`);
+  log(`True-Mem initialized — worktree=${worktree}`);
 
   // Extract project name and create professional startup message
   const projectName = worktree.split(/[/\\]/).pop() || 'Unknown';
-  const startupMessage = `🧠 True-Memory: Plugin loaded successfully | v2.0.1 [${BUILD_TIME}] | Mode: Jaccard Similarity | Project: ${projectName}`;
+  const startupMessage = `🧠 True-Mem: Plugin loaded successfully | v2.0.1 [${BUILD_TIME}] | Mode: Jaccard Similarity | Project: ${projectName}`;
 
   // Log to file-based logger only (to avoid overwriting OpenCode TUI during lazy initialization)
   log(startupMessage);

@@ -1,5 +1,5 @@
 /**
- * True-Memory Embeddings (Stub - Jaccard Similarity)
+ * True-Mem Embeddings (Stub - Jaccard Similarity)
  * Replaced Transformers.js with Jaccard similarity (word overlap)
  */
 

@@ -1,5 +1,5 @@
 {
-  "name": "true-memory",
+  "name": "true-mem",
   "version": "1.0.0",
   "description": "Persistent memory plugin for OpenCode with cognitive psychology-based memory management",
   "main": "dist/index.js",
@@ -29,12 +29,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rizal72/true-memory.git"
+    "url": "git+https://github.com/rizal72/true-mem.git"
   },
   "bugs": {
-    "url": "https://github.com/rizal72/true-memory/issues"
+    "url": "https://github.com/rizal72/true-mem/issues"
   },
-  "homepage": "https://github.com/rizal72/true-memory#readme",
+  "homepage": "https://github.com/rizal72/true-mem#readme",
   "files": [
     "dist/",
     "README.md",

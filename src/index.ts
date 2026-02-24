@@ -1,5 +1,5 @@
 /**
- * True-Memory - Persistent memory plugin for OpenCode
+ * True-Mem - Persistent memory plugin for OpenCode
  *
  * CRITICAL:
  * - Initialize immediately but DON'T await in default export
@@ -26,7 +26,7 @@ let state: {
 };
 
 const TrueMemory: Plugin = async (ctx) => {
-  console.log('🧠 True-Memory: Plugin loading...');
+  console.log('🧠 True-Mem: Plugin loading...');
   // Store ctx
   state.ctx = ctx;
 
@@ -55,7 +55,7 @@ const TrueMemory: Plugin = async (ctx) => {
   })();
 
   // Return hooks IMMEDIATELY - no await!
-  log('True-Memory: Plugin registered (immediate init mode)');
+  log('True-Mem: Plugin registered (immediate init mode)');
 
   return {
     event: async ({ event }) => {
