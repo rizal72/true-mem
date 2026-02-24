@@ -12,7 +12,7 @@ import type { MemoryDatabase } from '../storage/database.js';
  */
 export type ReconsolidationAction =
   | { type: 'duplicate'; updatedMemory: MemoryUnit }
-  | { type: 'conflict'; replacementMemory: MemoryUnit }
+  | { type: 'conflict'; replacementMemory: MemoryUnit; existingMemoryId: string }
   | { type: 'complement'; newMemory: MemoryUnit };
 
 /**
@@ -85,12 +85,8 @@ async function handleDuplicate(
   },
   existingMemory: MemoryUnit
 ): Promise<{ type: 'duplicate'; updatedMemory: MemoryUnit }> {
-  // Increment frequency and update timestamps
+  // Increment frequency (this also updates last_accessed_at and updated_at)
   db.incrementFrequency(existingMemory.id);
-
-  // Update last_accessed_at to now
-  const now = new Date().toISOString();
-  db['db'].prepare(`UPDATE memory_units SET last_accessed_at = ?, updated_at = ? WHERE id = ?`).run(now, now, existingMemory.id);
 
   // Get updated memory
   const updatedMemory = db.getMemory(existingMemory.id)!;
@@ -100,12 +96,13 @@ async function handleDuplicate(
 
 /**
  * Handle conflicting memory (similarity > 0.8)
- * Uses "newer wins" strategy: delete existing, prepare new memory
+ * Uses "newer wins" strategy: prepare new memory for replacement
  *
  * @param db - The database instance
  * @param newMemoryData - The new memory data to replace existing
- * @param existingMemory - The existing memory to delete
+ * @param existingMemory - The existing memory to be replaced
  * @returns Conflict action with replacement memory
+ * @note The caller is responsible for deleting the existing memory and inserting the new one atomically
  */
 async function handleConflict(
   db: MemoryDatabase,
@@ -116,13 +113,10 @@ async function handleConflict(
     store: MemoryUnit['store'];
   },
   existingMemory: MemoryUnit
-): Promise<{ type: 'conflict'; replacementMemory: MemoryUnit }> {
-  // Delete existing memory
-  db['db'].prepare(`DELETE FROM memory_units WHERE id = ?`).run(existingMemory.id);
-
-  // Return new memory to be stored
-  // Note: The caller is responsible for actually storing this memory
-  return { type: 'conflict', replacementMemory: newMemoryData as MemoryUnit };
+): Promise<{ type: 'conflict'; replacementMemory: MemoryUnit; existingMemoryId: string }> {
+  // Return new memory and existing memory ID for the caller to handle atomically
+  // Note: The caller must DELETE the existing memory and INSERT the new one in the same transaction
+  return { type: 'conflict', replacementMemory: newMemoryData as MemoryUnit, existingMemoryId: existingMemory.id };
 }
 
 /**

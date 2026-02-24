@@ -44,7 +44,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 
 ## ✅ CURRENT STATUS - FASE 1-7 COMPLETATE + QUEUED PROBLEM RISOLTO
 
-**Data ultimo aggiornamento**: 24/02/2026 - FIX: Global Scope Retrieval Bug
+**Data ultimo aggiornamento**: 24/02/2026 - FIX: Query Consistency + Atomic Transaction
 
 ### Stato Implementazione
 
@@ -73,8 +73,9 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | **False Positive Prevention** | ✅ | Four-layer defense + explicit intent isolation + role validation |
 | **Vector Embeddings** | ✅ | Jaccard similarity (Transformers.js rimosso) |
 | **Intelligent Decay** | ✅ | Only episodic, triggered on session.end |
-| **Reconsolidation** | ✅ | Conflict resolution (no embeddings) |
+| **Reconsolidation** | ✅ | Conflict resolution (no embeddings) + atomic transaction |
 | **QUEUED Problem** | ✅ | **RISOLTO** - Opzione B + maintenance moved to session.end |
+| **Query Consistency** | ✅ | **RISOLTO** - vectorSearch allineato con getMemoriesByScope |
 | **Global Scope Retrieval** | ✅ | **RISOLTO** - TUTTE le memorie con NULL scope iniettate |
 
 ### FASE 1-7 ✅ COMPLETATE
@@ -559,6 +560,69 @@ params = [currentProject];
 **Regola di scope**: Le memorie semantic generate dall'user devono sempre avere `project_scope IS NULL` (globale).
 
 Vedi `src/storage/database.ts:467-489` per codice dettagliato.
+
+### 🟢 FIX: Query Consistency - vectorSearch vs getMemoriesByScope
+
+**Problema**: I metodi `vectorSearch` e `getMemoriesByScope` usavano logica diversa per le memorie globali (`project_scope IS NULL`):
+- `getMemoriesByScope`: Restituiva TUTTE le memorie globali (corretto)
+- `vectorSearch`: Restituiva SOLO le classificazioni user-level (constraint, preference, learning, procedural)
+
+Questo causava **comportamento di retrieval inconsistente** a seconda del metodo chiamato.
+
+**Soluzione**: Allineare `vectorSearch` alla stessa logica di `getMemoriesByScope`:
+
+```typescript
+// src/storage/database.ts:531-540 - Fixed query
+const query = `
+  SELECT * FROM memory_units
+  WHERE status = 'active'
+  AND (
+    project_scope IS NULL
+    OR (project_scope IS NOT NULL AND project_scope = ?)
+  )
+  LIMIT 1000
+`;
+params = [currentProject ?? ''];
+```
+
+Entrambi i metodi ora usano logica identica: `project_scope IS NULL OR (project_scope IS NOT NULL AND project_scope = ?)`.
+
+Vedi `src/storage/database.ts:531-540` per codice dettagliato.
+
+### 🟢 FIX: Atomic Transaction for Conflict Resolution
+
+**Problema**: In `handleReconsolidation`, l'azione `handleConflict` eseguiva un DELETE sulla memoria esistente, ma l'INSERT operazione avveniva nel caller (`createMemory`). Questo **non era atomico**.
+
+```typescript
+// reconsolidate.ts:121 - DELETE nel handler (non usato)
+db['db'].prepare(`DELETE FROM memory_units WHERE id = ?`).run(existingMemory.id);
+```
+
+**Rischio**: Se il caller falliva l'INSERT dopo il DELETE, la vecchia memoria era **persa definitivamente**.
+
+**Soluzione**: Avvolgere l'intero flusso di riconsolidazione in una transazione atomica:
+
+1. **Encapsulamento corretto**: Rimossi accessi diretti `db['db']`, ora usa solo API pubbliche
+2. **Transazione atomica**:
+   ```typescript
+   // database.ts:335-452 - Transaction wrapper
+   this.db.exec('BEGIN TRANSACTION');
+   try {
+     // handleReconsolidation()
+     // DELETE (per conflict case)
+     // INSERT
+     this.db.exec('COMMIT');
+   } catch {
+     this.db.exec('ROLLBACK');
+   }
+   ```
+
+**Modifiche apportate**:
+- `ReconsolidationAction` aggiornato per includere `existingMemoryId`
+- Rimossi accessi diretti `db['db']` in reconsolidate.ts (violazione incapsulamento)
+- DELETE + INSERT ora atomici (BEGIN TRANSACTION → DELETE → INSERT → COMMIT con ROLLBACK automatico)
+
+Vedi `src/memory/reconsolidate.ts` e `src/storage/database.ts:335-452` per codice dettagliato.
 
 ### Dipendenze Corrette (package.json)
 

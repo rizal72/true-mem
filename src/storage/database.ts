@@ -363,8 +363,8 @@ export class MemoryDatabase {
                 return action.updatedMemory;
 
               case 'conflict':
-                // Delete existing, proceed with insert of new memory
-                this.db.prepare(`DELETE FROM memory_units WHERE id = ?`).run(existingMemory.id);
+                // Delete existing memory, then proceed with insert of new memory (same transaction)
+                this.db.prepare(`DELETE FROM memory_units WHERE id = ?`).run(action.existingMemoryId);
                 break;
 
               case 'complement':
@@ -527,20 +527,17 @@ export class MemoryDatabase {
       ? queryTextOrEmbedding
       : (queryTextOrEmbedding.length === 0 ? '' : ''); // If embedding is empty, use empty query
 
-    // Fetch all active memories for the current scope
-    const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
-    const userClassPlaceholders = userLevelClassifications.map(() => '?').join(', ');
-
+    // Fetch all active memories for the current scope (same logic as getMemoriesByScope)
     const query = `
       SELECT * FROM memory_units
       WHERE status = 'active'
       AND (
-        (classification IN (${userClassPlaceholders}) AND project_scope IS NULL)
+        project_scope IS NULL
         OR (project_scope IS NOT NULL AND project_scope = ?)
       )
       LIMIT 1000
     `;
-    const params: any[] = [...userLevelClassifications, currentProject ?? ''];
+    const params: any[] = [currentProject ?? ''];
 
     const rows = this.db.prepare(query).all(...params) as any[];
     const memories = rows.map(this.rowToMemoryUnit.bind(this));
