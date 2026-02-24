@@ -17,7 +17,7 @@ import {
 } from '../../memory/classifier.js';
 import { matchAllPatterns } from '../../memory/patterns.js';
 import { getExtractionQueue } from '../../extraction/queue.js';
-import { registerShutdownHandler, executeShutdown } from '../../shutdown.js';
+import { registerShutdownHandler } from '../../shutdown.js';
 import { parseConversationLines } from '../../memory/role-patterns.js';
 import { getAtomicMemories, wrapMemories, type InjectionState } from './injection.js';
 
@@ -143,12 +143,6 @@ export async function createTrueMemoryPlugin(
         case 'session.deleted':
         case 'session.error':
           await handleSessionEnd(state, event.type, sessionId);
-          break;
-        case 'server.instance.disposed':
-          // Server is shutting down, execute synchronous shutdown
-          // CRITICAL: Don't await - Bun handles cleanup automatically
-          log('Server instance disposed, triggering sync shutdown');
-          executeShutdown('server.instance.disposed');
           break;
         case 'message.updated':
           if (state.config.opencode.extractOnMessage) {
@@ -292,18 +286,7 @@ async function handleSessionCreated(
   state.currentSessionId = sessionId;
   log(`Session created: ${sessionId}`);
 
-  // Run maintenance: decay and consolidation
-  try {
-    const decayed = state.db.applyDecay();
-    const promoted = state.db.runConsolidation();
-    if (decayed > 0 || promoted > 0) {
-      log(`Maintenance: decayed ${decayed} memories, promoted ${promoted} to LTM`);
-    }
-  } catch (err) {
-    log(`Maintenance error: ${err}`);
-  }
-
-  // Create session in DB
+  // ✅ Sola creazione sessione - nessun maintenance bloccante
   state.db.createSession(sessionId, state.worktree, { agentType: 'opencode' });
 }
 
@@ -487,7 +470,18 @@ async function handleSessionEnd(
 ): Promise<void> {
   const effectiveSessionId = sessionId ?? state.currentSessionId;
   if (!effectiveSessionId) return;
-  
+
+  // ✅ ESEGUI maintenance alla fine della sessione (non blocca startup)
+  try {
+    const decayed = state.db.applyDecay();
+    const promoted = state.db.runConsolidation();
+    if (decayed > 0 || promoted > 0) {
+      log(`Maintenance: decayed ${decayed} memories, promoted ${promoted} to LTM`);
+    }
+  } catch (err) {
+    log(`Maintenance error: ${err}`);
+  }
+
   const reason = eventType === 'session.error' ? 'abandoned' : 'normal';
   state.db.endSession(effectiveSessionId, reason === 'abandoned' ? 'abandoned' : 'completed');
   state.currentSessionId = null;
