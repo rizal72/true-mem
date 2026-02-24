@@ -477,16 +477,16 @@ export class MemoryDatabase {
     let params: any[];
 
     if (hasValidProject) {
-      // Normal case: filter by scope (user-level global + project-specific)
+      // Normal case: filter by scope (global memories + project-specific)
       query = `
         SELECT * FROM memory_units
         WHERE status = 'active'
         AND (
-          (classification IN (${userClassPlaceholders}) AND project_scope IS NULL)
+          project_scope IS NULL
           OR (project_scope IS NOT NULL AND project_scope = ?)
         )
       `;
-      params = [...userLevelClassifications, currentProject];
+      params = [currentProject];
     } else {
       // Fallback: return ALL memories when project is not determinable
       // This ensures injection works even when worktree resolution fails

@@ -44,7 +44,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 
 ## ✅ CURRENT STATUS - FASE 1-7 COMPLETATE + QUEUED PROBLEM RISOLTO
 
-**Data ultimo aggiornamento**: 24/02/2026
+**Data ultimo aggiornamento**: 24/02/2026 - FIX: Global Scope Retrieval Bug
 
 ### Stato Implementazione
 
@@ -75,6 +75,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | **Intelligent Decay** | ✅ | Only episodic, triggered on session.end |
 | **Reconsolidation** | ✅ | Conflict resolution (no embeddings) |
 | **QUEUED Problem** | ✅ | **RISOLTO** - Opzione B + maintenance moved to session.end |
+| **Global Scope Retrieval** | ✅ | **RISOLTO** - TUTTE le memorie con NULL scope iniettate |
 
 ### FASE 1-7 ✅ COMPLETATE
 
@@ -522,6 +523,42 @@ function filterMetaTalk(text: string): string {
 ```
 
 Vedi `PLAN.md` per codice dettagliato.
+
+### 🟢 FIX: Global Scope Retrieval Bug
+
+**Problema**: Le memorie con `project_scope IS NULL` (globali) non venivano iniettate se la loro classificazione era project-level (es. `semantic`, `decision`, `bugfix`). La query SQL in `getMemoriesByScope` includeva solo le user-level classifications (`constraint`, `preference`, `learning`, `procedural`) nella condizione `project_scope IS NULL`.
+
+**Soluzione**: Modificare `getMemoriesByScope` in `src/storage/database.ts` per includere **TUTTE** le memorie con `project_scope IS NULL`, indipendentemente dalla classificazione:
+
+**Codice prima (buggy)**:
+```typescript
+query = `
+  SELECT * FROM memory_units
+  WHERE status = 'active'
+  AND (
+    (classification IN ('constraint', 'preference', 'learning', 'procedural') AND project_scope IS NULL)
+    OR (project_scope IS NOT NULL AND project_scope = ?)
+  )
+`;
+params = [...userLevelClassifications, currentProject];
+```
+
+**Codice dopo (fixed)**:
+```typescript
+query = `
+  SELECT * FROM memory_units
+  WHERE status = 'active'
+  AND (
+    project_scope IS NULL
+    OR (project_scope IS NOT NULL AND project_scope = ?)
+  )
+`;
+params = [currentProject];
+```
+
+**Regola di scope**: Le memorie semantic generate dall'user devono sempre avere `project_scope IS NULL` (globale).
+
+Vedi `src/storage/database.ts:467-489` per codice dettagliato.
 
 ### Dipendenze Corrette (package.json)
 
