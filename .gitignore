@@ -66,3 +66,7 @@ pnpm-lock.yaml
 
 # Debug
 .debug/
+
+# Draft files (not for repo)
+REDDIT_POST.md
+REVIEW.md

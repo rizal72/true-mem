@@ -44,7 +44,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 
 ## ✅ CURRENT STATUS - FASE 1-7 COMPLETATE + QUEUED PROBLEM RISOLTO
 
-**Data ultimo aggiornamento**: 24/02/2026 - FIX: Query Consistency + Atomic Transaction
+**Data ultimo aggiornamento**: 24/02/2026 - FIX: AI Meta-Talk Patterns + Language-Aware Analysis
 
 ### Stato Implementazione
 
@@ -77,6 +77,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | **QUEUED Problem** | ✅ | **RISOLTO** - Opzione B + maintenance moved to session.end |
 | **Query Consistency** | ✅ | **RISOLTO** - vectorSearch allineato con getMemoriesByScope |
 | **Global Scope Retrieval** | ✅ | **RISOLTO** - TUTTE le memorie con NULL scope iniettate |
+| **AI Meta-Talk Filtering** | ✅ | **RISOLTO** - AI-generated content escluso da extraction |
 
 ### FASE 1-7 ✅ COMPLETATE
 
@@ -623,6 +624,60 @@ db['db'].prepare(`DELETE FROM memory_units WHERE id = ?`).run(existingMemory.id)
 - DELETE + INSERT ora atomici (BEGIN TRANSACTION → DELETE → INSERT → COMMIT con ROLLBACK automatico)
 
 Vedi `src/memory/reconsolidate.ts` e `src/storage/database.ts:335-452` per codice dettagliato.
+
+### 🟢 FIX: AI Meta-Talk Filtering
+
+**Problema**: In contesti multilingua, le memorie AI-generated (sintesi, task completion, meta-talk) venivano estratte e memorizzate come preferenze utente. Analisi ha mostrato:
+
+| Lingua | Origine | Esempio |
+|--------|---------|---------|
+| Italiano (lingua utente) | USER | "preferisco 3...", "procediamo con..." |
+| Inglese (in contesto non-EN) | AI | "Goal The user is trying to save...", "[Background task completed]" |
+
+La lingua era un **sintomo**, non la causa. Il vero problema era che AI meta-talk sfuggiva ai filtri esistenti.
+
+**Rationale cognitivo** (Source Monitoring, Johnson et al. 1993): Gli umani distinguono le memorie per **origine** (chi l'ha detta), non per lingua. Il sistema deve fare lo stesso.
+
+**Soluzione**: Aggiungere `AI_META_TALK_PATTERNS` in `negative-patterns.ts`:
+
+```typescript
+// src/memory/negative-patterns.ts
+export const AI_META_TALK_PATTERNS: RegExp[] = [
+  // AI summary prefixes
+  /^(Goal|Summary|Context|Analysis|Note|Overview|Background):\s+The user/i,
+  /^(Goal|Summary|Context|Analysis|Note|Overview|Background):\s+This/i,
+
+  // Task completion markers
+  /^\[.*task.*completed\]/i,
+  /^\[.*completed.*\]/i,
+  /^\[Background task/i,
+
+  // AI instructional prefixes
+  /^Please (analyze|create|review|implement|explain|describe|summarize)/i,
+  /^Let me (analyze|create|review|implement|explain|describe)/i,
+  /^I will (analyze|create|review|implement|explain|describe)/i,
+
+  // AI self-reference patterns
+  /^This (file|code|implementation|solution|approach|method)/i,
+  /^The (above|following|below) (code|solution|implementation)/i,
+  /^Here('s| is) (the|a)/i,
+
+  // AI meta-commentary
+  /^Based on (the|my) analysis/i,
+  /^After (reviewing|analyzing|examining)/i,
+  /^Looking at (the|this)/i,
+];
+
+export function isAIMetaTalk(text: string): boolean {
+  return AI_META_TALK_PATTERNS.some(pattern => pattern.test(text.trim()));
+}
+```
+
+**Integrazione**: `matchesNegativePattern()` controlla PRIMA `isAIMetaTalk()`, quindi applica i pattern specifici per classificazione.
+
+**Effetto**: AI-generated content viene filtrato dal Layer 1 (negative patterns) prima di raggiungere il classificatore.
+
+Vedi `src/memory/negative-patterns.ts` per codice dettagliato.
 
 ### Dipendenze Corrette (package.json)
 

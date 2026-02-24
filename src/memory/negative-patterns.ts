@@ -5,6 +5,49 @@
  * E.g., "resolve DNS" should NOT trigger bugfix classification.
  */
 
+/**
+ * AI Meta-Talk Patterns
+ *
+ * These patterns detect AI-generated content (summaries, meta-talk, task completions)
+ * that should NEVER be stored as user memories, regardless of classification.
+ *
+ * Rationale: In multilingual contexts, AI output is often in English while user
+ * preferences are in their primary language. These patterns catch AI-generated
+ * content at the source, preventing it from polluting the memory database.
+ */
+export const AI_META_TALK_PATTERNS: RegExp[] = [
+  // AI summary prefixes
+  /^(Goal|Summary|Context|Analysis|Note|Overview|Background):\s+The user/i,
+  /^(Goal|Summary|Context|Analysis|Note|Overview|Background):\s+This/i,
+
+  // Task completion markers
+  /^\[.*task.*completed\]/i,
+  /^\[.*completed.*\]/i,
+  /^\[Background task/i,
+
+  // AI instructional prefixes
+  /^Please (analyze|create|review|implement|explain|describe|summarize)/i,
+  /^Let me (analyze|create|review|implement|explain|describe)/i,
+  /^I will (analyze|create|review|implement|explain|describe)/i,
+
+  // AI self-reference patterns
+  /^This (file|code|implementation|solution|approach|method)/i,
+  /^The (above|following|below) (code|solution|implementation)/i,
+  /^Here('s| is) (the|a)/i,
+
+  // AI meta-commentary
+  /^Based on (the|my) analysis/i,
+  /^After (reviewing|analyzing|examining)/i,
+  /^Looking at (the|this)/i,
+];
+
+/**
+ * Check if text appears to be AI-generated meta-talk
+ */
+export function isAIMetaTalk(text: string): boolean {
+  return AI_META_TALK_PATTERNS.some(pattern => pattern.test(text.trim()));
+}
+
 // Negative patterns per classification type
 export const NEGATIVE_PATTERNS: Record<string, RegExp[]> = {
   bugfix: [
@@ -59,8 +102,14 @@ export const NEGATIVE_PATTERNS: Record<string, RegExp[]> = {
 
 /**
  * Check if text matches any negative pattern for the given classification
+ * Also checks AI meta-talk patterns first (applies to all classifications)
  */
 export function matchesNegativePattern(text: string, classification: string): boolean {
+  // First, check if this is AI-generated meta-talk (applies to ALL classifications)
+  if (isAIMetaTalk(text)) {
+    return true;
+  }
+
   const patterns = NEGATIVE_PATTERNS[classification];
   if (!patterns) return false;
 
@@ -71,10 +120,21 @@ export function matchesNegativePattern(text: string, classification: string): bo
  * Get matching negative patterns (for debugging)
  */
 export function getMatchingNegativePatterns(text: string, classification: string): string[] {
-  const patterns = NEGATIVE_PATTERNS[classification];
-  if (!patterns) return [];
+  const matches: string[] = [];
 
-  return patterns
-    .filter(pattern => pattern.test(text))
-    .map(p => p.source);
+  // Check AI meta-talk first
+  if (isAIMetaTalk(text)) {
+    matches.push('[AI_META_TALK]');
+  }
+
+  const patterns = NEGATIVE_PATTERNS[classification];
+  if (patterns) {
+    matches.push(
+      ...patterns
+        .filter(pattern => pattern.test(text))
+        .map(p => p.source)
+    );
+  }
+
+  return matches;
 }

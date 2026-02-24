@@ -1,7 +1,7 @@
 {
   "name": "true-memory",
-  "version": "0.1.0",
-  "description": "Persistent memory plugin for OpenCode - inspired by PsychMem with crash fixes",
+  "version": "1.0.0",
+  "description": "Persistent memory plugin for OpenCode with cognitive psychology-based memory management",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -17,13 +17,29 @@
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
-    "ai-memory",
     "opencode",
+    "ai",
+    "memory",
     "plugin",
-    "persistent-memory"
+    "persistent",
+    "cognitive",
+    "coding-assistant"
   ],
-  "author": "",
+  "author": "rizal72",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rizal72/true-memory.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rizal72/true-memory/issues"
+  },
+  "homepage": "https://github.com/rizal72/true-memory#readme",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@opencode-ai/plugin": "^1.2.6",
     "@opencode-ai/sdk": "^1.2.6",
