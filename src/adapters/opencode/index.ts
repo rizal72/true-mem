@@ -343,6 +343,11 @@ async function processSessionIdle(
     /## Compaction Instructions/i,
     /\[LTM\]/i,
     /\[STM\]/i,
+    // XML tag removal
+    /<true_memory_context[^>]*>/gi,
+    /<\/true_memory_context>/gi,
+    /<memories[^>]*>/gi,
+    /<\/memories>/gi,
   ];
 
   const hasInjectedContent = injectionMarkers.some(marker => marker.test(conversationText));
@@ -415,7 +420,7 @@ async function processSessionIdle(
             const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
             const isExplicitIntentSemantic = classification === 'semantic' && confidence >= 0.85;
             const isUserLevel = userLevelClassifications.includes(classification) || isExplicitIntentSemantic;
-            const scope = isUserLevel ? undefined : state.worktree;
+            const scope = isUserLevel ? null : state.worktree;
 
             // Determine store: STM vs LTM
             // - Explicit intent (confidence >= 0.85) → LTM (user explicitly said "remember this")
@@ -568,6 +573,11 @@ function extractCleanSummary(conversationText: string, maxLength: number = 500):
     /## Compaction Instructions/gi,
     /\[LTM\]/gi,
     /\[STM\]/gi,
+    // XML tag removal
+    /<true_memory_context[^>]*>/gi,
+    /<\/true_memory_context>/gi,
+    /<memories[^>]*>/gi,
+    /<\/memories>/gi,
   ];
 
   for (const marker of injectionMarkers) {
@@ -602,6 +612,11 @@ function extractConversationText(messages: MessageContainer[]): string {
     /## Compaction Instructions/i,
     /\[LTM\]/i,
     /\[STM\]/i,
+    // XML tag removal
+    /<true_memory_context[^>]*>/gi,
+    /<\/true_memory_context>/gi,
+    /<memories[^>]*>/gi,
+    /<\/memories>/gi,
   ];
 
   // Regex patterns that indicate tool execution or results (should be filtered out)
@@ -667,6 +682,11 @@ function extractConversationTextWithRoles(messages: MessageContainer[]): {
     /## Compaction Instructions/i,
     /\[LTM\]/i,
     /\[STM\]/i,
+    // XML tag removal
+    /<true_memory_context[^>]*>/gi,
+    /<\/true_memory_context>/gi,
+    /<memories[^>]*>/gi,
+    /<\/memories>/gi,
   ];
 
   // Regex patterns that indicate tool execution or results (should be filtered out)
