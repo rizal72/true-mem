@@ -86,6 +86,14 @@ const TrueMemory: Plugin = async (ctx) => {
       // Returns immediately - UI not blocked
     },
 
+    'tool.execute.before': async (input, output) => {
+      // MUST await - needs to modify tool arguments before tool execution
+      const hooks = await lazyInit();
+      if (hooks['tool.execute.before']) {
+        await hooks['tool.execute.before'](input, output);
+      }
+    },
+
     'tool.execute.after': async (input, output) => {
       // Fire-and-forget - don't await!
       lazyInit().then(hooks => {
@@ -94,6 +102,14 @@ const TrueMemory: Plugin = async (ctx) => {
         }
       }).catch(err => log(`Init error: ${err}`));
       // Returns immediately - UI not blocked
+    },
+
+    'experimental.chat.system.transform': async (input, output) => {
+      // MUST await - needs to modify output before system prompt is sent
+      const hooks = await lazyInit();
+      if (hooks['experimental.chat.system.transform']) {
+        await hooks['experimental.chat.system.transform'](input, output);
+      }
     },
 
     'experimental.session.compacting': async (input, output) => {

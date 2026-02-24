@@ -1,6 +1,9 @@
 /**
  * True-Memory Shutdown Manager
- * Robust shutdown mechanism to prevent Bun crashes and resource leaks
+ * Synchronous shutdown mechanism to prevent Bun crashes
+ * 
+ * CRITICAL: No signal handlers - Bun handles cleanup automatically
+ * Custom signal handlers cause C++ exceptions during shutdown
  */
 
 import { log } from './logger.js';
@@ -22,10 +25,11 @@ class ShutdownManager {
   private static instance: ShutdownManager;
   private handlers: ShutdownHandler[] = [];
   private isShuttingDown = false;
-  private shutdownPromise: Promise<void> | null = null;
 
   private constructor() {
-    this.registerProcessListeners();
+    // NO signal handlers - they cause Bun C++ exceptions
+    // Bun handles process cleanup automatically
+    log('Shutdown manager: Initialized (no signal handlers)');
   }
 
   public static getInstance(): ShutdownManager {
@@ -33,49 +37,6 @@ class ShutdownManager {
       ShutdownManager.instance = new ShutdownManager();
     }
     return ShutdownManager.instance;
-  }
-
-  /**
-   * Register process listeners for various shutdown signals
-   */
-  private registerProcessListeners(): void {
-    process.on('beforeExit', () => {
-      if (!this.isShuttingDown) {
-        log('Shutdown triggered: beforeExit');
-        this.executeShutdown('beforeExit').catch(err => {
-          log(`Shutdown error: ${err}`);
-        });
-      }
-    });
-
-    process.on('SIGINT', () => {
-      if (!this.isShuttingDown) {
-        log('Shutdown triggered: SIGINT');
-        this.executeShutdown('SIGINT').catch(err => {
-          log(`Shutdown error: ${err}`);
-        });
-      }
-    });
-
-    process.on('SIGTERM', () => {
-      if (!this.isShuttingDown) {
-        log('Shutdown triggered: SIGTERM');
-        this.executeShutdown('SIGTERM').catch(err => {
-          log(`Shutdown error: ${err}`);
-        });
-      }
-    });
-
-    process.on('SIGHUP', () => {
-      if (!this.isShuttingDown) {
-        log('Shutdown triggered: SIGHUP');
-        this.executeShutdown('SIGHUP').catch(err => {
-          log(`Shutdown error: ${err}`);
-        });
-      }
-    });
-
-    log('Shutdown manager: Process listeners registered');
   }
 
   /**
@@ -94,51 +55,38 @@ class ShutdownManager {
   }
 
   /**
-   * Execute all registered shutdown handlers
-   * Handlers are executed in reverse registration order (LIFO)
+   * Execute all registered shutdown handlers SYNCHRONOUSLY
+   * Called only from server.instance.disposed - never from signal handlers
    */
-  public async executeShutdown(reason: string): Promise<void> {
-    if (this.isShuttingDown && this.shutdownPromise) {
-      log(`Shutdown already in progress (${reason}), waiting...`);
-      return this.shutdownPromise;
+  public executeShutdown(reason: string): void {
+    if (this.isShuttingDown) {
+      log(`Shutdown already in progress (${reason}), skipping`);
+      return;
     }
 
     this.isShuttingDown = true;
-    log(`Starting shutdown sequence: ${reason}`);
+    log(`Starting shutdown: ${reason}`);
 
-    // Create shutdown promise for coordination
-    this.shutdownPromise = (async () => {
-      // Execute handlers in reverse order (LIFO)
-      const reversedHandlers = [...this.handlers].reverse();
+    // Execute handlers in reverse order (LIFO) - SYNCHRONOUSLY
+    const reversedHandlers = [...this.handlers].reverse();
 
-      for (const { name, handler } of reversedHandlers) {
-        try {
-          log(`Executing shutdown handler: ${name}`);
-          const startTime = Date.now();
-          await Promise.race([
-            handler(),
-            new Promise<void>((_, reject) =>
-              setTimeout(() => reject(new Error('Handler timeout after 3 seconds')), 3000)
-            ),
-          ]);
-          const duration = Date.now() - startTime;
-          log(`Shutdown handler completed: ${name} (${duration}ms)`);
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          log(`Shutdown handler error: ${name} - ${errorMessage}`);
-          // Continue with other handlers even if one fails
+    for (const { name, handler } of reversedHandlers) {
+      try {
+        log(`Executing shutdown handler: ${name}`);
+        const result = handler();
+        // If handler returns a promise, ignore it - don't await
+        if (result instanceof Promise) {
+          result.catch(() => {}); // Swallow async errors
         }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log(`Shutdown handler error: ${name} - ${errorMessage}`);
+        // Continue with other handlers
       }
-
-      log('Shutdown sequence completed');
-    })();
-
-    try {
-      await this.shutdownPromise;
-    } finally {
-      this.isShuttingDown = false;
-      this.shutdownPromise = null;
     }
+
+    log('Shutdown completed');
+    // DON'T reset isShuttingDown - we're shutting down
   }
 
   /**
@@ -163,7 +111,7 @@ class ShutdownManager {
 /**
  * Register a shutdown handler
  * @param name - Handler name for logging
- * @param handler - Async or sync cleanup function
+ * @param handler - Sync cleanup function (async promises are ignored)
  */
 export function registerShutdownHandler(name: string, handler: () => void | Promise<void>): void {
   const manager = ShutdownManager.getInstance();
@@ -171,12 +119,12 @@ export function registerShutdownHandler(name: string, handler: () => void | Prom
 }
 
 /**
- * Execute shutdown sequence manually
+ * Execute shutdown sequence manually - SYNCHRONOUS
  * @param reason - Reason for shutdown (for logging)
  */
-export async function executeShutdown(reason: string): Promise<void> {
+export function executeShutdown(reason: string): void {
   const manager = ShutdownManager.getInstance();
-  await manager.executeShutdown(reason);
+  manager.executeShutdown(reason);
 }
 
 /**

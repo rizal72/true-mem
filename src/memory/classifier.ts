@@ -77,6 +77,9 @@ export function calculateClassificationScore(text: string, classification: strin
 
 /**
  * Three-layer defense: decide if memory should be stored
+ * 
+ * SPECIAL CASE: When classification is 'semantic' (assigned by explicit intent fallback),
+ * bypass keyword checking - the user explicitly asked to remember this.
  */
 export function shouldStoreMemory(
   text: string,
@@ -89,6 +92,17 @@ export function shouldStoreMemory(
       store: false,
       confidence: 0,
       reason: 'matches_negative_pattern',
+    };
+  }
+
+  // SPECIAL CASE: semantic classification from explicit intent
+  // Bypass keyword checking - user explicitly said "Ricordati che..."
+  if (classification === 'semantic') {
+    // Use high confidence for explicit intent memories
+    return {
+      store: true,
+      confidence: 0.85,
+      reason: 'explicit_intent_semantic',
     };
   }
 

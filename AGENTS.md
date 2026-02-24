@@ -820,7 +820,7 @@ Durante la fase di test e sviluppo, è preferibile che l'utente esegua manualmen
 ## Risorse
 
 - [PsychMem repo](https://github.com/muratg98/psychmem) - Codice di riferimento
-- [PsychMem locale](~/Documents/_PROGETTI/psychmem) - Per copia file e PR bun build fix
+- [PsychMem locale](~/Documents/_PROGETTI/psychmem_fork/psychmem) - Per copia file e PR bun build fix
 - [oh-my-opencode-slim](~/Documents/_PROGETTI/oh-my-opencode-slim) - Plugin funzionante di riferimento
 
 ---

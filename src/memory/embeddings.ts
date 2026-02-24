@@ -1,346 +1,112 @@
 /**
- * True-Memory Embeddings
- * Vector embeddings using Transformers.js (local, private, free)
+ * True-Memory Embeddings (Stub - Jaccard Similarity)
+ * Replaced Transformers.js with Jaccard similarity (word overlap)
  */
 
 import { log } from '../logger.js';
-import { registerShutdownHandler } from '../shutdown.js';
 
 // =============================================================================
-// Singleton Embedding Pipeline
-// =============================================================================
-
-class EmbeddingPipeline {
-  private static instance: EmbeddingPipeline | null = null;
-  private pipeline: any = null;
-  private isInitialized = false;
-  private initializationPromise: Promise<void> | null = null;
-  private disposeTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
-  private constructor() {
-    log('Embeddings: Singleton created (lazy loading mode)');
-  }
-
-  /**
-   * Get the singleton instance
-   */
-  public static getInstance(): EmbeddingPipeline {
-    if (!EmbeddingPipeline.instance) {
-      EmbeddingPipeline.instance = new EmbeddingPipeline();
-    }
-    return EmbeddingPipeline.instance;
-  }
-
-  /**
-   * Initialize the embedding pipeline (lazy loading)
-   * Only called when embed() is invoked for the first time
-   */
-  private async initialize(): Promise<void> {
-    if (this.isInitialized) {
-      return;
-    }
-
-    // Return existing initialization if in progress
-    if (this.initializationPromise) {
-      return this.initializationPromise;
-    }
-
-    this.initializationPromise = (async () => {
-      try {
-        log('Embeddings: Loading model Xenova/all-MiniLM-L6-v2...');
-
-        // Silence ONNX Runtime warnings
-        process.env.ORT_LOGGING_LEVEL = '2';
-
-        // Use eval for dynamic import to bypass bun build's static analysis and name mangling
-        const transformers = await eval('import("@huggingface/transformers")');
-        log('Embeddings: Transformers keys:', Object.keys(transformers).slice(0, 20));
-
-        const pipeline = transformers.pipeline;
-        const env = transformers.env;
-
-        // Silence Transformers.js warnings
-        transformers.env.logLevel = 'error';
-
-        if (!pipeline) {
-          log('Embeddings: ERROR - pipeline not found in transformers object');
-          throw new Error('pipeline function not found in transformers module');
-        }
-        log('Embeddings: pipeline found in transformers object');
-
-        log('Embeddings: env present:', !!env);
-
-        this.pipeline = await pipeline(
-          'feature-extraction',
-          'Xenova/all-MiniLM-L6-v2',
-          {
-            dtype: 'fp16',
-            device: 'cpu',
-            progress_callback: (progress: any) => {
-              if (progress.status === 'progress') {
-                const percent = progress.progress ? Math.round(progress.progress * 100) : 0;
-                if (percent % 20 === 0) { // Log every 20%
-                  log(`Embeddings: Model download progress: ${percent}%`);
-                }
-              }
-            },
-          }
-        );
-
-        this.isInitialized = true;
-        log('Embeddings: Model loaded successfully (Xenova/all-MiniLM-L6-v2)');
-
-        // Register shutdown handler for graceful disposal
-        registerShutdownHandler('embedding-pipeline', () => this.dispose());
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        log('Embeddings: Failed to load model', { error: errorMessage });
-        this.initializationPromise = null;
-        throw new Error(`Failed to initialize embedding pipeline: ${errorMessage}`);
-      }
-    })();
-
-    return this.initializationPromise;
-  }
-
-  /**
-   * Generate embedding for a text
-   * @param text - Input text to embed
-   * @returns Promise<Float32Array> - Embedding vector
-   */
-  public async embed(text: string): Promise<Float32Array> {
-    try {
-      // Lazy initialization - only load model when first needed
-      await this.initialize();
-
-      if (!this.pipeline) {
-        throw new Error('Embedding pipeline not initialized');
-      }
-
-      log('Embeddings: Generating embedding for text', { textLength: text.length });
-
-      // Generate embeddings using the pipeline
-      const output = await this.pipeline(text, {
-        pooling: 'mean',
-        normalize: true,
-      });
-
-      // Extract the tensor data as Float32Array
-      const embedding = Array.isArray(output) && typeof output[0] === 'number'
-        ? new Float32Array(output as number[])
-        : (output as { data: Float32Array }).data;
-
-      log('Embeddings: Embedding generated successfully', {
-        dimensions: embedding.length,
-      });
-
-      // Reset idle timer after successful embedding
-      this.resetIdleTimer();
-
-      return embedding;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log('Embeddings: Failed to generate embedding', { error: errorMessage });
-      throw new Error(`Embedding generation failed: ${errorMessage}`);
-    }
-  }
-
-  /**
-   * Dispose of the embedding pipeline to free memory
-   * Should be called when the plugin is shutting down
-   * Idempotent: safe to call multiple times
-   */
-  public async dispose(): Promise<void> {
-    try {
-      // Clear the idle timer
-      if (this.disposeTimer) {
-        clearTimeout(this.disposeTimer);
-        this.disposeTimer = null;
-      }
-
-      if (this.pipeline) {
-        // Transformers.js pipelines may have a dispose method for proper cleanup
-        if (typeof this.pipeline.dispose === 'function') {
-          log('Embeddings: Calling pipeline.dispose() with 3s timeout');
-          try {
-            await Promise.race([
-              this.pipeline.dispose(),
-              new Promise<void>((_, reject) =>
-                setTimeout(() => reject(new Error('Pipeline dispose timeout after 3 seconds')), 3000)
-              ),
-            ]);
-            log('Embeddings: Pipeline disposed successfully');
-          } catch (disposeError) {
-            const timeoutMsg = disposeError instanceof Error ? disposeError.message : String(disposeError);
-            log(`Embeddings: Pipeline dispose ${timeoutMsg}, forcing cleanup`);
-            // Continue with forced cleanup even if dispose times out
-          }
-        }
-
-        // Clear the reference and let garbage collection handle it
-        this.pipeline = null;
-        this.isInitialized = false;
-        this.initializationPromise = null;
-        log('Embeddings: Pipeline disposed (forced cleanup)');
-      } else {
-        log('Embeddings: Pipeline already disposed or never initialized');
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log('Embeddings: Error during dispose', { error: errorMessage });
-    }
-  }
-
-  /**
-   * Check if the pipeline is initialized
-   */
-  public isReady(): boolean {
-    return this.isInitialized && this.pipeline !== null;
-  }
-
-  /**
-   * Reset the idle timer for automatic disposal
-   * Called after each successful embedding operation
-   */
-  private resetIdleTimer(): void {
-    // Clear existing timer
-    if (this.disposeTimer) {
-      clearTimeout(this.disposeTimer);
-    }
-
-    // Set new timer to dispose after idle timeout
-    this.disposeTimer = setTimeout(async () => {
-      log('Embeddings: Idle timeout reached, disposing pipeline');
-      await this.dispose();
-    }, this.IDLE_TIMEOUT_MS);
-  }
-}
-
-// =============================================================================
-// Utility Functions
+// Stub Functions (No Vector Embeddings)
 // =============================================================================
 
 /**
- * Convert a Float32Array vector to a Buffer for SQLite storage
- * @param vector - Float32Array to convert
- * @returns Buffer - Binary representation of the vector
+ * Calculate Jaccard similarity between two texts
+ * Jaccard = |intersection| / |union|
+ *
+ * @param text1 - First text
+ * @param text2 - Second text
+ * @returns number - Jaccard similarity (0 to 1)
  */
-export function vectorToBuffer(vector: Float32Array): Buffer {
+export function jaccardSimilarity(text1: string, text2: string): number {
   try {
-    const buffer = Buffer.alloc(vector.length * 4); // 4 bytes per float32
-    const view = new Float32Array(buffer.buffer);
-    view.set(vector);
-    log('Embeddings: Vector converted to Buffer', {
-      dimensions: vector.length,
-      size: buffer.length,
-    });
-    return buffer;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    log('Embeddings: Failed to convert vector to Buffer', { error: errorMessage });
-    throw new Error(`Vector to Buffer conversion failed: ${errorMessage}`);
-  }
-}
+    // Tokenize into lowercase words (remove punctuation)
+    const tokenize = (text: string): Set<string> => {
+      const words = text
+        .toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 0);
+      return new Set(words);
+    };
 
-/**
- * Convert a Buffer back to a Float32Array
- * @param buffer - Buffer containing the vector data
- * @returns Float32Array - Restored vector
- */
-export function bufferToVector(buffer: Buffer): Float32Array {
-  try {
-    if (buffer.length % 4 !== 0) {
-      throw new Error(`Invalid buffer length: ${buffer.length} (must be multiple of 4)`);
-    }
-    const vector = new Float32Array(buffer.buffer);
-    log('Embeddings: Buffer converted to Float32Array', {
-      dimensions: vector.length,
-    });
-    return vector;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    log('Embeddings: Failed to convert Buffer to vector', { error: errorMessage });
-    throw new Error(`Buffer to Vector conversion failed: ${errorMessage}`);
-  }
-}
+    const set1 = tokenize(text1);
+    const set2 = tokenize(text2);
 
-/**
- * Calculate cosine similarity between two vectors
- * @param a - First vector
- * @param b - Second vector
- * @returns number - Cosine similarity (-1 to 1, but typically 0 to 1 for normalized vectors)
- */
-export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  try {
-    if (a.length !== b.length) {
-      throw new Error(`Vector dimension mismatch: ${a.length} vs ${b.length}`);
-    }
-
-    if (a.length === 0) {
-      throw new Error('Cannot compute similarity of empty vectors');
-    }
-
-    // Compute dot product
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
-    for (let i = 0; i < a.length; i++) {
-      const ai = a[i]!;
-      const bi = b[i]!;
-      dotProduct += ai * bi;
-      normA += ai * ai;
-      normB += bi * bi;
-    }
-
-    // Handle zero vectors
-    if (normA === 0 || normB === 0) {
-      log('Embeddings: Cosine similarity warning - zero vector detected');
+    if (set1.size === 0 || set2.size === 0) {
       return 0;
     }
 
-    const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    // Calculate intersection and union
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    const union = new Set([...set1, ...set2]);
 
-    log('Embeddings: Cosine similarity calculated', {
+    const similarity = intersection.size / union.size;
+
+    log('Jaccard similarity calculated', {
       similarity: similarity.toFixed(4),
-      dimensions: a.length,
+      text1Words: set1.size,
+      text2Words: set2.size,
+      intersectionWords: intersection.size,
     });
 
-    // Clamp to [-1, 1] to handle floating point errors
-    return Math.max(-1, Math.min(1, similarity));
+    return similarity;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    log('Embeddings: Failed to calculate cosine similarity', { error: errorMessage });
-    throw new Error(`Cosine similarity calculation failed: ${errorMessage}`);
+    log('Jaccard similarity calculation failed', { error: errorMessage });
+    return 0;
   }
 }
 
-// =============================================================================
-// Public API
-// =============================================================================
-
 /**
- * Get the singleton embedding pipeline instance
- */
-export function getEmbeddingPipeline(): EmbeddingPipeline {
-  return EmbeddingPipeline.getInstance();
-}
-
-/**
- * Generate an embedding for text (convenience function)
- * @param text - Input text
- * @returns Promise<Float32Array> - Embedding vector
+ * Stub: Generate embedding (not used - returns empty array)
+ * @deprecated Use jaccardSimilarity instead
  */
 export async function embed(text: string): Promise<Float32Array> {
-  const pipeline = getEmbeddingPipeline();
-  return pipeline.embed(text);
+  log('Embeddings: embed() called, returning empty array (use jaccardSimilarity instead)');
+  return new Float32Array(0);
 }
 
 /**
- * Dispose of the embedding pipeline (convenience function)
+ * Stub: Dispose function (no-op)
+ * @deprecated No resources to clean up
  */
-export async function disposeEmbeddings(): Promise<void> {
-  const pipeline = getEmbeddingPipeline();
-  await pipeline.dispose();
+export function disposeEmbeddings(): void {
+  log('Embeddings: disposeEmbeddings() called (no-op in Jaccard mode)');
+}
+
+/**
+ * Stub: Get embedding pipeline (not used)
+ * @deprecated Use jaccardSimilarity instead
+ */
+export function getEmbeddingPipeline(): any {
+  log('Embeddings: getEmbeddingPipeline() called (no-op in Jaccard mode)');
+  return null;
+}
+
+// =============================================================================
+// Legacy functions (for backward compatibility, do not use)
+// =============================================================================
+
+/**
+ * @deprecated Use jaccardSimilarity instead
+ */
+export function vectorToBuffer(vector: Float32Array): Buffer {
+  log('Warning: vectorToBuffer called (no-op in Jaccard mode)');
+  return Buffer.alloc(0);
+}
+
+/**
+ * @deprecated Use jaccardSimilarity instead
+ */
+export function bufferToVector(buffer: Buffer): Float32Array {
+  log('Warning: bufferToVector called (no-op in Jaccard mode)');
+  return new Float32Array(0);
+}
+
+/**
+ * @deprecated Use jaccardSimilarity instead
+ */
+export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  log('Warning: cosineSimilarity called (no-op in Jaccard mode, returning 0)');
+  return 0;
 }

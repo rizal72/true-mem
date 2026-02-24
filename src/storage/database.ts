@@ -335,43 +335,41 @@ export class MemoryDatabase {
     this.db.exec('BEGIN TRANSACTION');
 
     try {
-      // Phase 7: Reconsolidation - Check for similar memories if embedding is provided
-      if (features.embedding) {
-        const similarMemories = await this.vectorSearch(features.embedding, features.projectScope, 1);
+      // Phase 7: Reconsolidation - Check for similar memories using Jaccard similarity
+      const similarMemories = await this.vectorSearch(summary, features.projectScope, 1);
 
-        if (similarMemories.length > 0) {
-          const existingMemory = similarMemories[0];
-          if (existingMemory && existingMemory.embedding) {
-            const similarity = this.cosineSimilarity(features.embedding, existingMemory.embedding);
+      if (similarMemories.length > 0) {
+        const existingMemory = similarMemories[0];
+        if (existingMemory) {
+          const similarity = this.jaccardSimilarity(summary, existingMemory.summary);
 
-            if (isRelevant(similarity)) {
-              // Call reconsolidation logic
-              const newMemoryData = {
-                store,
-                classification,
-                summary,
-                sourceEventIds,
-                projectScope: features.projectScope,
-                sessionId: features.sessionId,
-              };
+          if (isRelevant(similarity)) {
+            // Call reconsolidation logic
+            const newMemoryData = {
+              store,
+              classification,
+              summary,
+              sourceEventIds,
+              projectScope: features.projectScope,
+              sessionId: features.sessionId,
+            };
 
-              const action = await handleReconsolidation(this, newMemoryData, existingMemory, similarity);
+            const action = await handleReconsolidation(this, newMemoryData, existingMemory, similarity);
 
-              switch (action.type) {
-                case 'duplicate':
-                  // Increment frequency and return updated memory (no new insert)
-                  this.db.exec('COMMIT');
-                  return action.updatedMemory;
+            switch (action.type) {
+              case 'duplicate':
+                // Increment frequency and return updated memory (no new insert)
+                this.db.exec('COMMIT');
+                return action.updatedMemory;
 
-                case 'conflict':
-                  // Delete existing, proceed with insert of new memory
-                  this.db.prepare(`DELETE FROM memory_units WHERE id = ?`).run(existingMemory.id);
-                  break;
+              case 'conflict':
+                // Delete existing, proceed with insert of new memory
+                this.db.prepare(`DELETE FROM memory_units WHERE id = ?`).run(existingMemory.id);
+                break;
 
-                case 'complement':
-                  // Proceed with normal insert
-                  break;
-              }
+              case 'complement':
+                // Proceed with normal insert
+                break;
             }
           }
         }
@@ -414,7 +412,7 @@ export class MemoryDatabase {
         status: 'active',
         version: 1,
         evidence: [],
-        embedding: features.embedding,
+        embedding: undefined,
       };
 
       this.db.prepare(`
@@ -448,7 +446,7 @@ export class MemoryDatabase {
         JSON.stringify(memory.associations),
         memory.status,
         memory.version,
-        features.embedding ? Buffer.from(features.embedding.buffer) : null
+        null
       );
 
       this.db.exec('COMMIT');
@@ -495,20 +493,28 @@ export class MemoryDatabase {
   }
 
   /**
-   * Vector similarity search using cosine similarity
-   * Returns top-k memories sorted by similarity to query embedding
+   * Jaccard similarity search (replaces vector embeddings)
+   * Returns top-k memories sorted by Jaccard similarity to query text
+   *
+   * @param queryText - Text to search for (can be empty Float32Array for backward compatibility)
+   * @param currentProject - Current project scope
+   * @param limit - Maximum number of results
    */
-  async vectorSearch(queryEmbedding: Float32Array, currentProject?: string, limit: number = 10): Promise<MemoryUnit[]> {
+  async vectorSearch(queryTextOrEmbedding: Float32Array | string, currentProject?: string, limit: number = 10): Promise<MemoryUnit[]> {
     this.ensureInit();
 
-    // Fetch all active memories with embeddings for the current scope
+    // Handle both string query and Float32Array (for backward compatibility)
+    const queryText = typeof queryTextOrEmbedding === 'string'
+      ? queryTextOrEmbedding
+      : (queryTextOrEmbedding.length === 0 ? '' : ''); // If embedding is empty, use empty query
+
+    // Fetch all active memories for the current scope
     const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
     const userClassPlaceholders = userLevelClassifications.map(() => '?').join(', ');
 
     const query = `
       SELECT * FROM memory_units
       WHERE status = 'active'
-      AND embedding IS NOT NULL
       AND (
         classification IN (${userClassPlaceholders})
         OR (project_scope IS NOT NULL AND project_scope = ?)
@@ -520,16 +526,12 @@ export class MemoryDatabase {
     const rows = this.db.prepare(query).all(...params) as any[];
     const memories = rows.map(this.rowToMemoryUnit.bind(this));
 
-    // Calculate cosine similarity for each memory
+    // Calculate Jaccard similarity for each memory
     const results = memories
       .map((memory) => {
-        if (!memory.embedding) {
-          return null;
-        }
-        const similarity = this.cosineSimilarity(queryEmbedding, memory.embedding);
+        const similarity = this.jaccardSimilarity(queryText, memory.summary);
         return { memory, similarity };
-      })
-      .filter((result): result is { memory: MemoryUnit; similarity: number } => result !== null);
+      });
 
     // Sort by similarity (descending) and return top-k
     results.sort((a, b) => b.similarity - a.similarity);
@@ -537,29 +539,30 @@ export class MemoryDatabase {
   }
 
   /**
-   * Calculate cosine similarity between two vectors
+   * Calculate Jaccard similarity between two texts
+   * Jaccard = |intersection| / |union|
    */
-  private cosineSimilarity(a: Float32Array, b: Float32Array): number {
-    if (a.length !== b.length) {
+  private jaccardSimilarity(text1: string, text2: string): number {
+    const tokenize = (text: string): Set<string> => {
+      const words = text
+        .toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 0);
+      return new Set(words);
+    };
+
+    const set1 = tokenize(text1);
+    const set2 = tokenize(text2);
+
+    if (set1.size === 0 || set2.size === 0) {
       return 0;
     }
 
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    const union = new Set([...set1, ...set2]);
 
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i]! * b[i]!;
-      normA += a[i]! * a[i]!;
-      normB += b[i]! * b[i]!;
-    }
-
-    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-    if (denominator === 0) {
-      return 0;
-    }
-
-    return dotProduct / denominator;
+    return intersection.size / union.size;
   }
 
   updateMemoryStrength(memoryId: string, strength: number): void {
@@ -718,28 +721,26 @@ export class MemoryDatabase {
       status: row.status as MemoryStatus,
       version: row.version,
       evidence: [],
-      embedding: row.embedding ? (() => {
-        try {
-          return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / Float32Array.BYTES_PER_ELEMENT);
-        } catch (error) {
-          // Handle potential alignment or corruption issues gracefully
-          return undefined;
-        }
-      })() : undefined,
+      embedding: undefined,
     };
   }
 
   close(): void {
     try {
-      if (this.db) {
-        this.db.close();
-        log('Database connection closed');
-      } else {
+      if (!this.db) {
         log('Database already closed or not initialized');
+        return;
       }
+      
+      // Close synchronously - no async operations during shutdown
+      // Ignore errors - Bun/OS will clean up file handles on exit
+      this.db.close();
+      this.initialized = false;
+      log('Database connection closed');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log('Error closing database connection', { error: errorMessage });
+      // Silently ignore errors during shutdown
+      // The OS will clean up file handles and WAL files
+      log('Database close error (ignored during shutdown)');
     }
   }
 }

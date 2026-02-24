@@ -25,7 +25,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1",
     "@opencode-ai/plugin": "^1.2.6",
     "@opencode-ai/sdk": "^1.2.6",
     "uuid": "^13.0.0"

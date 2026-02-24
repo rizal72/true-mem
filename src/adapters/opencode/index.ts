@@ -16,10 +16,10 @@ import {
   calculateRoleWeightedScore,
 } from '../../memory/classifier.js';
 import { matchAllPatterns } from '../../memory/patterns.js';
-import { embed } from '../../memory/embeddings.js';
 import { getExtractionQueue } from '../../extraction/queue.js';
 import { registerShutdownHandler, executeShutdown } from '../../shutdown.js';
 import { parseConversationLines } from '../../memory/role-patterns.js';
+import { getAtomicMemories, wrapMemories, type InjectionState } from './injection.js';
 
 // Debounce state for message.updated events
 let messageDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -118,7 +118,7 @@ export async function createTrueMemoryPlugin(
 
   // Extract project name and create professional startup message
   const projectName = worktree.split(/[/\\]/).pop() || 'Unknown';
-  const startupMessage = `🧠 True-Memory: Plugin loaded successfully | v2.0.1 [${BUILD_TIME}] | Mode: Vector (Transformers.js) | Project: ${projectName}`;
+  const startupMessage = `🧠 True-Memory: Plugin loaded successfully | v2.0.1 [${BUILD_TIME}] | Mode: Jaccard Similarity | Project: ${projectName}`;
 
   // Log to file-based logger only (to avoid overwriting OpenCode TUI during lazy initialization)
   log(startupMessage);
@@ -128,10 +128,10 @@ export async function createTrueMemoryPlugin(
       // Skip noisy events
       const silentEvents = new Set(['message.part.delta', 'message.part.updated', 'session.diff']);
       if (silentEvents.has(event.type)) return;
-      
+
       log(`Event: ${event.type}`);
       const sessionId = getSessionIdFromEvent(event.properties);
-      
+
       switch (event.type) {
         case 'session.created':
           await handleSessionCreated(state, sessionId);
@@ -145,9 +145,10 @@ export async function createTrueMemoryPlugin(
           await handleSessionEnd(state, event.type, sessionId);
           break;
         case 'server.instance.disposed':
-          // Server is shutting down, execute graceful shutdown
-          log('Server instance disposed, executing shutdown sequence');
-          await executeShutdown('server.instance.disposed');
+          // Server is shutting down, execute synchronous shutdown
+          // CRITICAL: Don't await - Bun handles cleanup automatically
+          log('Server instance disposed, triggering sync shutdown');
+          executeShutdown('server.instance.disposed');
           break;
         case 'message.updated':
           if (state.config.opencode.extractOnMessage) {
@@ -157,27 +158,103 @@ export async function createTrueMemoryPlugin(
           break;
       }
     },
-    
+
+    'tool.execute.before': async (input, output) => {
+      const toolInput = input as { tool: string; sessionID: string; callID: string };
+      const toolName = toolInput.tool;
+      log(`tool.execute.before: ${toolName}`);
+
+      // Only inject for task and background_task tools
+      if (toolName !== 'task' && toolName !== 'background_task') {
+        return;
+      }
+
+      // Extract prompt from output args
+      const outputWithArgs = output as { args: { prompt?: string } };
+      const originalPrompt = outputWithArgs.args?.prompt;
+      if (!originalPrompt) {
+        return;
+      }
+
+      // Retrieve relevant memories using atomic injection
+      try {
+        const injectionState: InjectionState = {
+          db: state.db,
+          worktree: state.worktree,
+        };
+
+        const memories = await getAtomicMemories(injectionState, originalPrompt, 10);
+
+        if (memories.length > 0) {
+          const wrappedContext = wrapMemories(memories, state.worktree, 'project');
+
+          // Update the prompt in output args
+          outputWithArgs.args.prompt = `${wrappedContext}\n\n${originalPrompt}`;
+
+          log(`Atomic injection: ${memories.length} memories injected for ${toolName}`);
+        }
+      } catch (error) {
+        log(`Atomic injection failed for ${toolName}: ${error}`);
+        // Continue without injection on error
+      }
+    },
+
     'tool.execute.after': async (input, output) => {
       log(`tool.execute.after: ${input.tool}`);
-      
+
       if (!state.currentSessionId && input.sessionID) {
         state.currentSessionId = input.sessionID;
       }
-      
+
       if (!state.currentSessionId) return;
-      
+
       await handlePostToolUse(state, input, output);
     },
-    
+
+    'experimental.chat.system.transform': async (input, output) => {
+      log('experimental.chat.system.transform: Injecting global memories');
+
+      try {
+        const injectionState: InjectionState = {
+          db: state.db,
+          worktree: state.worktree,
+        };
+
+        // Retrieve global memories (user-level: constraints, preferences, learning, procedural)
+        const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
+        const allMemories = injectionState.db.getMemoriesByScope(undefined, 20);
+
+        // Filter only user-level memories for global context
+        const globalMemories = allMemories.filter(m =>
+          userLevelClassifications.includes(m.classification)
+        );
+
+        if (globalMemories.length > 0) {
+          const wrappedContext = wrapMemories(globalMemories, state.worktree, 'global');
+
+          // Handle system as string[] - append to the last element
+          const systemArray = Array.isArray(output.system) ? output.system : [output.system];
+          const lastElement = systemArray[systemArray.length - 1] || '';
+          systemArray[systemArray.length - 1] = `${lastElement}\n\n${wrappedContext}`;
+
+          output.system = systemArray;
+
+          log(`Global injection: ${globalMemories.length} memories injected into system prompt`);
+        }
+      } catch (error) {
+        log(`Global injection failed: ${error}`);
+        // Continue without injection on error
+      }
+    },
+
     'experimental.session.compacting': async (input, output) => {
       log('Compaction hook triggered');
-      
+
       const sessionId = input.sessionID ?? state.currentSessionId;
-      
+
       if (state.config.opencode.injectOnCompaction) {
         const memories = await getRelevantMemories(state, state.config.opencode.maxCompactionMemories);
-        
+
         if (memories.length > 0) {
           const memoryContext = formatMemoriesForInjection(memories, state.worktree);
           output.prompt = buildCompactionPrompt(memoryContext);
@@ -350,15 +427,25 @@ async function processSessionIdle(
 
           if (result.store) {
             // Determine scope
+            // - User-level classifications: global scope (all projects)
+            // - Explicit intent semantic: also global (user said "remember this")
             const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
-            const scope = userLevelClassifications.includes(classification) ? undefined : state.worktree;
+            const isExplicitIntentSemantic = classification === 'semantic' && confidence >= 0.85;
+            const isUserLevel = userLevelClassifications.includes(classification) || isExplicitIntentSemantic;
+            const scope = isUserLevel ? undefined : state.worktree;
 
-            // Generate embedding for the memory
-            const embedding = await embed(isolatedContent);
+            // Determine store: STM vs LTM
+            // - Explicit intent (confidence >= 0.85) → LTM (user explicitly said "remember this")
+            // - Auto-promote classifications → LTM (bugfix, learning, decision)
+            // - Everything else → STM
+            const autoPromoteClassifications = ['bugfix', 'learning', 'decision'];
+            const isExplicitIntent = confidence >= 0.85;
+            const shouldPromoteToLtm = isExplicitIntent || autoPromoteClassifications.includes(classification);
+            const store = shouldPromoteToLtm ? 'ltm' : 'stm';
 
-            // Store memory
+            // Store memory (no embeddings - using Jaccard similarity)
             await state.db.createMemory(
-              'stm',
+              store,
               classification as any,
               extractCleanSummary(isolatedContent), // Clean summary without prefixes
               [],
@@ -367,11 +454,10 @@ async function processSessionIdle(
                 projectScope: scope,
                 importance: confidence, // Use confidence from classifyWithRoleAwareness
                 confidence: confidence,
-                embedding,
               }
             );
 
-            log(`Stored ${classification} memory (confidence: ${confidence.toFixed(2)}, role: ${role})`);
+            log(`Stored ${classification} memory in ${store.toUpperCase()} (confidence: ${confidence.toFixed(2)}, role: ${role}, reason: ${result.reason})`);
           } else {
             log(`Skipped ${classification} memory: ${result.reason}`);
           }
@@ -420,31 +506,32 @@ async function handleMessageUpdated(
     state.currentSessionId = sessionId;
   }
 
-  // Lazy injection for continued sessions
-  const role = info?.role ?? (eventProps?.role as string | undefined);
-  if (role === 'user' && !state.injectedSessions.has(sessionId)) {
-    state.injectedSessions.add(sessionId);
-    log(`Lazy injection for session ${sessionId}`);
-
-    // Extract user's message content for contextual retrieval
-    let userQuery: string | undefined;
-    const parts = info?.parts ?? (eventProps?.parts as Part[] | undefined);
-    if (parts && parts.length > 0) {
-      for (const part of parts) {
-        if (part.type === 'text' && 'text' in part) {
-          userQuery = (part as { text: string }).text;
-          break;
-        }
-      }
-    }
-
-    const memories = await getRelevantMemories(state, state.config.opencode.maxSessionStartMemories, userQuery);
-    if (memories.length > 0) {
-      const memoryContext = formatMemoriesForInjection(memories, state.worktree);
-      await injectContext(state, sessionId, memoryContext);
-      log(`Lazy injection: ${memories.length} memories`);
-    }
-  }
+  // Lazy injection disabled - using atomic injection via tool.execute.before and experimental.chat.system.transform
+  // This avoids duplicate injections and provides more context-aware memory retrieval
+  // const role = info?.role ?? (eventProps?.role as string | undefined);
+  // if (role === 'user' && !state.injectedSessions.has(sessionId)) {
+  //   state.injectedSessions.add(sessionId);
+  //   log(`Lazy injection for session ${sessionId}`);
+  //
+  //   // Extract user's message content for contextual retrieval
+  //   let userQuery: string | undefined;
+  //   const parts = info?.parts ?? (eventProps?.parts as Part[] | undefined);
+  //   if (parts && parts.length > 0) {
+  //     for (const part of parts) {
+  //       if (part.type === 'text' && 'text' in part) {
+  //         userQuery = (part as { text: string }).text;
+  //         break;
+  //       }
+  //     }
+  //   }
+  //
+  //   const memories = await getRelevantMemories(state, state.config.opencode.maxSessionStartMemories, userQuery);
+  //   if (memories.length > 0) {
+  //     const memoryContext = formatMemoriesForInjection(memories, state.worktree);
+  //     await injectContext(state, sessionId, memoryContext);
+  //     log(`Lazy injection: ${memories.length} memories`);
+  //   }
+  // }
 }
 
 async function handlePostToolUse(
@@ -666,9 +753,8 @@ function extractConversationTextWithRoles(messages: MessageContainer[]): {
 
 async function getRelevantMemories(state: TrueMemoryAdapterState, limit: number, query?: string): Promise<MemoryUnit[]> {
   if (query) {
-    // Generate embedding for query and use vector search
-    const embedding = await embed(query);
-    return state.db.vectorSearch(embedding, state.worktree, limit);
+    // Use Jaccard similarity search (text-based, no embeddings)
+    return state.db.vectorSearch(query, state.worktree, limit);
   } else {
     // Fall back to scope-based retrieval
     return state.db.getMemoriesByScope(state.worktree, limit);
