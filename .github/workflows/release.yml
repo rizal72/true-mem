@@ -31,7 +31,7 @@ jobs:
           bun run build
 
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: npm publish --access public
 
       - name: Get version
         id: version
