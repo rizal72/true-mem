@@ -44,7 +44,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 
 ## ✅ CURRENT STATUS - FASE 1-7 COMPLETATE + QUEUED PROBLEM RISOLTO
 
-**Data ultimo aggiornamento**: 24/02/2026 - FIX: AI Meta-Talk Patterns + Language-Aware Analysis
+**Data ultimo aggiornamento**: 25/02/2026 - FIX: Duplicate Prevention (content_hash + global debounce)
 
 ### Stato Implementazione
 
@@ -78,6 +78,7 @@ Quando PLAN.md è completato → rimane solo AGENTS.md come documentazione final
 | **Query Consistency** | ✅ | **RISOLTO** - vectorSearch allineato con getMemoriesByScope |
 | **Global Scope Retrieval** | ✅ | **RISOLTO** - TUTTE le memorie con NULL scope iniettate |
 | **AI Meta-Talk Filtering** | ✅ | **RISOLTO** - AI-generated content escluso da extraction |
+| **Duplicate Prevention** | ✅ | **RISOLTO** - content_hash + global debounce + lowered thresholds |
 
 ### FASE 1-7 ✅ COMPLETATE
 
@@ -678,6 +679,73 @@ export function isAIMetaTalk(text: string): boolean {
 **Effetto**: AI-generated content viene filtrato dal Layer 1 (negative patterns) prima di raggiungere il classificatore.
 
 Vedi `src/memory/negative-patterns.ts` per codice dettagliato.
+
+### 🟢 FIX: Duplicate Prevention (Content Hash + Global Debounce)
+
+**Problema**: Le memorie venivano duplicate nel database a causa di:
+1. **Threshold Jaccard troppo alte** (0.95 per duplicate, quasi mai raggiunto)
+2. **Race condition** tra trigger multipli (session.idle, message.updated)
+3. **Scope mismatch** - memorie identiche con scope diverso non si trovavano
+
+**Analisi** (via @oracle):
+- Il sistema creava 3 copie della stessa memoria
+- Jaccard su testo identico = 1.0, ma threshold 0.95 troppo alto per near-duplicate
+- Trigger multipli causavano estrazioni ravvicinate prima del commit
+
+**Soluzione**: Tre-layer duplicate prevention:
+
+**Layer 1: Content Hash (O(1) exact duplicate detection)**
+```typescript
+// src/storage/database.ts
+function generateContentHash(text: string): string {
+  const normalized = text.toLowerCase().trim();
+  return createHash('sha256').update(normalized).digest('hex');
+}
+
+// In createMemory - check PRIMA di vectorSearch
+const contentHash = generateContentHash(summary);
+const exactDuplicate = this.db.prepare(
+  `SELECT * FROM memory_units WHERE content_hash = ? AND status = 'active' LIMIT 1`
+).get(contentHash);
+
+if (exactDuplicate) {
+  this.incrementFrequency(exactDuplicate.id);
+  return updatedMemory; // No insert needed
+}
+```
+
+**Layer 2: Lowered Jaccard Thresholds**
+```typescript
+// src/memory/reconsolidate.ts
+const SIMILARITY_THRESHOLDS = {
+  DUPLICATE: 0.85,   // Was 0.95
+  CONFLICT: 0.7,     // Was 0.8
+  MIN_RELEVANT: 0.5, // Was 0.7
+} as const;
+```
+
+**Layer 3: Global Extraction Debounce**
+```typescript
+// src/adapters/opencode/index.ts
+let lastExtractionTime = 0;
+const MIN_EXTRACTION_INTERVAL = 2000; // 2 seconds
+
+function canExtract(): boolean {
+  const now = Date.now();
+  if (now - lastExtractionTime < MIN_EXTRACTION_INTERVAL) {
+    return false; // Skip extraction
+  }
+  lastExtractionTime = now;
+  return true;
+}
+```
+
+**Effetto**: 
+- Exact duplicate → O(1) lookup, increment frequency
+- Near-duplicate → Jaccard con threshold più basso
+- Race condition → Bloccate da global debounce 2s
+
+Vedi `src/storage/database.ts` e `src/memory/reconsolidate.ts` per codice dettagliato.
 
 ### Dipendenze Corrette (package.json)
 
