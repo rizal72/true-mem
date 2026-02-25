@@ -672,22 +672,30 @@ export const GLOBAL_SCOPE_KEYWORDS = {
   latin: [
     // English
     'always', 'everywhere', 'for all projects', 'in every project', 'globally',
+    'in all my projects', 'across all projects', 'in all projects',
     // Italian
     'sempre', 'ovunque', 'per tutti i progetti', 'in ogni progetto', 'globalmente',
+    'in tutti i miei progetti', 'in tutti i progetti', 'per ogni progetto',
     // Spanish
     'siempre', 'en todas partes', 'para todos los proyectos', 'en todos los proyectos',
+    'en todos mis proyectos',
     // French
     'toujours', 'partout', 'pour tous les projets', 'dans tous les projets',
+    'dans tous mes projets',
     // German
     'immer', 'uberall', 'fur alle projekte', 'in allen projekten',
+    'in allen meinen projekten',
     // Portuguese
     'sempre', 'em todos os projetos', 'para todos os projetos',
+    'em todos os meus projetos',
     // Dutch
     'altijd', 'overal', 'voor alle projecten',
+    'in al mijn projecten',
     // Turkish
     'her zaman', 'her yerde', 'tum projelerde',
     // Polish
     'zawsze', 'wszedzie', 'dla wszystkich projektow',
+    'we wszystkich moich projektach',
   ],
 };
 
