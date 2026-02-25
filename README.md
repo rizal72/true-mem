@@ -80,11 +80,7 @@ What makes True-Mem different from a simple database? It's modeled after how hum
 
 ## Installation
 
-```bash
-npm install true-mem
-```
-
-Then add to your `~/.config/opencode/opencode.jsonc`:
+Add to your `~/.config/opencode/opencode.jsonc`:
 
 ```jsonc
 {
@@ -93,6 +89,8 @@ Then add to your `~/.config/opencode/opencode.jsonc`:
   ]
 }
 ```
+
+OpenCode will automatically download the plugin from npm.
 
 ---
 
