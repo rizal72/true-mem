@@ -12,6 +12,7 @@
     }
   },
   "scripts": {
+    "preversion": "bun run build",
     "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc --emitDeclarationOnly",
     "dev": "bun build src/index.ts --outdir dist --target bun --format esm --watch",
     "typecheck": "tsc --noEmit"

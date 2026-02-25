@@ -11,7 +11,8 @@
 import type { Plugin, Hooks } from '@opencode-ai/plugin';
 import type { PluginInput } from '@opencode-ai/plugin';
 import { log } from './logger.js';
-import pkg from '../package.json' with { type: 'json' };
+import { getVersion } from './utils/version.js';
+import { showToast } from './utils/toast.js';
 
 // Singleton state - shared across all hook calls
 let state: {
@@ -27,7 +28,6 @@ let state: {
 };
 
 const TrueMemory: Plugin = async (ctx) => {
-  console.log(`True-Mem v${pkg.version}: Plugin loading...`);
   // Store ctx
   state.ctx = ctx;
 
@@ -60,6 +60,12 @@ const TrueMemory: Plugin = async (ctx) => {
 
   return {
     event: async ({ event }) => {
+      // Show startup toast on session.created
+      if (event.type === 'session.created' && state.ctx) {
+        const version = getVersion();
+        showToast(state.ctx, `True-Mem v${version}`, 'Persistent memory plugin active.', 'info');
+      }
+
       // Skip noisy events synchronously
       const silentEvents = new Set(['message.part.delta', 'message.part.updated', 'session.diff']);
       if (silentEvents.has(event.type)) return;
