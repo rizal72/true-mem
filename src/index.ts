@@ -20,11 +20,13 @@ let state: {
   initPromise: Promise<void> | null;
   ctx: PluginInput | null;
   realHooks: Hooks | null;
+  initializingLock: boolean;
 } = {
   initialized: false,
   initPromise: null,
   ctx: null,
   realHooks: null,
+  initializingLock: false,
 };
 
 // Track if toast shown (per process, not per session)
@@ -45,28 +47,36 @@ const TrueMemory: Plugin = async (ctx) => {
   }
 
   // Start initialization IMMEDIATELY but DON'T await
-  state.initPromise = (async () => {
-    log('Phase 1: Initializing plugin (lightweight)...');
+  // Use lock to prevent concurrent initialization
+  if (!state.initializingLock) {
+    state.initializingLock = true;
 
-    if (!state.ctx) {
-      log('ERROR: No ctx available');
-      return;
-    }
+    state.initPromise = (async () => {
+      log('Phase 1: Initializing plugin (lightweight)...');
 
-    try {
-      // Lightweight operations only (database, config)
-      const { createTrueMemoryPlugin } = await import('./adapters/opencode/index.js');
-      state.realHooks = await createTrueMemoryPlugin(state.ctx);
-      state.initialized = true;
+      if (!state.ctx) {
+        log('ERROR: No ctx available');
+        state.initializingLock = false;
+        return;
+      }
 
-      log('Phase 1 complete - Plugin ready');
-    } catch (error) {
-      log(`Init failed: ${error}`);
-      // Reset to allow retry on subsequent calls
-      state.initPromise = null;
-      state.realHooks = null;
-    }
-  })();
+      try {
+        // Lightweight operations only (database, config)
+        const { createTrueMemoryPlugin } = await import('./adapters/opencode/index.js');
+        state.realHooks = await createTrueMemoryPlugin(state.ctx);
+        state.initialized = true;
+
+        log('Phase 1 complete - Plugin ready');
+      } catch (error) {
+        log(`Init failed: ${error}`);
+        // Reset to allow retry on subsequent calls
+        state.initPromise = null;
+        state.realHooks = null;
+      } finally {
+        state.initializingLock = false;
+      }
+    })();
+  }
 
   // Return hooks IMMEDIATELY - no await!
   log('True-Mem: Plugin registered (immediate init mode)');

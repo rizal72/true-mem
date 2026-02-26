@@ -117,10 +117,15 @@ export async function createTrueMemoryPlugin(
   // Register shutdown handler for database
   registerShutdownHandler('database', () => db.close());
 
-  // Resolve project root
-  const worktree = (!ctx.worktree || ctx.worktree === '/' || ctx.worktree === '\\')
-    ? ctx.directory
-    : ctx.worktree;
+  // Resolve project root with explicit validation
+  // P3-1: Prevent falling back to "/" which matches all memories
+  const isValidPath = (path: string | undefined): boolean => {
+    return !!(path && path !== '/' && path !== '\\' && path.trim().length > 0);
+  };
+
+  const worktree = isValidPath(ctx.worktree)
+    ? ctx.worktree
+    : (isValidPath(ctx.directory) ? ctx.directory : `unknown-project-${Date.now()}`);
   
   const state: TrueMemoryAdapterState = {
     db,
@@ -506,6 +511,9 @@ async function handleSessionEnd(
   } catch (err) {
     log(`Maintenance error: ${err}`);
   }
+
+  // P2-2: Clean up injectedSessions to prevent memory leak in long-running processes
+  state.injectedSessions.delete(effectiveSessionId);
 
   const reason = eventType === 'session.error' ? 'abandoned' : 'normal';
   state.db.endSession(effectiveSessionId, reason === 'abandoned' ? 'abandoned' : 'completed');

@@ -616,6 +616,11 @@ export class MemoryDatabase {
       ? queryTextOrEmbedding
       : (queryTextOrEmbedding.length === 0 ? '' : ''); // If embedding is empty, use empty query
 
+    // Return empty array for empty queries to avoid random results with similarity 0
+    if (queryText.trim().length === 0) {
+      return [];
+    }
+
     // Fetch all active memories for the current scope (same logic as getMemoriesByScope)
     const query = `
       SELECT * FROM memory_units
