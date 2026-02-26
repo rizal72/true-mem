@@ -117,6 +117,8 @@ Add to your `~/.config/opencode/opencode.jsonc`:
 
 OpenCode will automatically download the plugin from npm.
 
+A `~/.true-mem/` directory will be created to store the SQLite database and debug logs.
+
 After restarting OpenCode, you'll see a toast notification in the top-right corner confirming the plugin is loaded:
 
 ```
