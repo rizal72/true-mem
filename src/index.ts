@@ -35,13 +35,13 @@ const TrueMemory: Plugin = async (ctx) => {
   state.ctx = ctx;
 
   // Show toast IMMEDIATELY when plugin loads (works for ALL sessions, including continued)
-  // OpenCode TUI only supports ONE toast at a time, so delay 3s to let OMO-slim finish
+  // Small delay to let UI settle (OMO-slim toast comes later, after first prompt)
   if (!hasShownToast) {
     hasShownToast = true;
     const version = getVersion();
     setTimeout(() => {
       showToast(ctx, `True-Mem v${version}`, 'Memory active.', 'info', 4000);
-    }, 3000);
+    }, 1000);
   }
 
   // Start initialization IMMEDIATELY but DON'T await
