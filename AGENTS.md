@@ -41,6 +41,7 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 | "Ricordami" ambiguity | REMIND_RECALL_PATTERNS (10 lingue) |
 | Global scope retrieval | Query SQL allineata |
 | Query consistency | vectorSearch = getMemoriesByScope |
+| Explicit intent scope | Default PROJECT, keyword per GLOBAL |
 | npm OIDC auth fallita | NPM_TOKEN come GitHub Secret |
 | Toast solo nuove sessioni | Toast nel corpo plugin (tutte le sessioni) |
 | Versione "unknown" | findPackageJsonUp() come OMO-slim |
@@ -90,6 +91,31 @@ src/
 | bugfix | Mai | Project | "Fixato auth timeout" |
 | semantic | Mai | Project | "API usa REST" |
 | episodic | Si (7gg) | Project | "Ieri abbiamo refactorato" |
+
+---
+
+## Scope Logic (Explicit Intent)
+
+**Regola**: "Ricordami..." → default **PROJECT scope**
+
+Per memorizzare in **GLOBAL scope**, il testo deve contenere una keyword globale:
+
+| Lingua | Keywords |
+|--------|----------|
+| English | always, everywhere, for all projects, globally |
+| Italian | sempre, ovunque, per tutti i progetti, globalmente |
+| Spanish | siempre, en todas partes, para todos los proyectos |
+| French | toujours, partout, pour tous les projets |
+| German | immer, überall, für alle projekte |
+| Portuguese | sempre, em todos os projetos |
+| + Dutch, Turkish, Polish | altijd, her zaman, zawsze... |
+
+**Esempi:**
+- "Ricordami che uso bun" → **Project scope** (default)
+- "Ricordami **sempre** che uso bun" → **Global scope** (keyword presente)
+- "Remember to **always** run tests" → **Global scope** (keyword presente)
+
+**File**: `src/memory/patterns.ts` → `GLOBAL_SCOPE_KEYWORDS` + `hasGlobalScopeKeyword()`
 
 ---
 
