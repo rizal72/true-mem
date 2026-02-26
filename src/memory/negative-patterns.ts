@@ -6,6 +6,104 @@
  */
 
 /**
+ * Negation Patterns
+ *
+ * These patterns detect negations that invalidate memory statements.
+ * Sentences containing negations should NOT be stored as memories, regardless
+ * of whether they contain other memory-related keywords.
+ *
+ * Example: "non ho capito" contains "capito" but is negated → DON'T store
+ * Example: "I don't understand" contains "understand" but is negated → DON'T store
+ *
+ * Rationale: Negations reverse the meaning of statements. Learning something
+ * implies understanding, but "I don't understand" is the opposite.
+ */
+export const NEGATION_PATTERNS: RegExp[] = [
+  // Italian - negation patterns
+  /\bnon\s+(ho|hai|ha|abbiamo|avete|hanno)\s+(capito|capita|capisco|capisci|capisce|capiamo)\b/i,
+  /\bnon\s+(è|sono|e'|erano|eravamo|fu|fui)\b/i,
+  /\bnon\s+(posso|puoi|può|possiamo|potete|possono|potrei|potresti|potrebbe|potremmo)\b/i,
+  /\bnon\s+(voglio|vuoi|vuole|vogliamo|volete|vogliono|vorrei|vorresti|vorrebbe|vorremmo)\b/i,
+  /\bnon\s+(devo|devi|deve|dobbiamo|dovete|devono|dovrei|dovresti|dovrebbe|dovremmo)\b/i,
+  /\bnon\s+(so|sai|sa|sappiamo|sapete|sanno)\b/i,
+  /\bnon\s+(mi|ti|si|ci|vi)\s+(ricordo|ricordi|ricorda|ricordiamo|ricordate)\b/i,
+  /\bnon\s+(funziona|funzionano|funzionava|funzionava|funzioner[aà])\b/i,
+  /\bnon\s+(c'[eè]|ci\s+[eè]|c'\s+era|ci\s+era)\b/i,
+
+  // English - negation patterns
+  /\bI\s+(don'?t|do\s+not)\s+(understand|know|think|believe|remember|recall)\b/i,
+  /\bI\s+(didn'?t|did\s+not)\s+(understand|know|think|believe|remember|recall|get|catch)\b/i,
+  /\bI\s+(haven'?t|have\s+not)\s+(understood|known|thought|believed|remembered|recalled)\b/i,
+  /\bI\s+(wouldn'?t|would\s+not)\b/i,
+  /\bI\s+(couldn'?t|could\s+not)\b/i,
+  /\bI\s+(shouldn'?t|should\s+not)\b/i,
+  /\bit\s+(doesn'?t|does\s+not)\s+(work|function|exist)\b/i,
+  /\bit\s+(didn'?t|did\s+not)\s+(work|function)\b/i,
+  /\b(not|never|no)\s+(understand|know|remember|recall|believe|think)\b/i,
+
+  // Spanish - negation patterns
+  /\bno\s+(entiendo|entiende|entend[ií]|comprendo|comprende|comprend[ií])\b/i,
+  /\bno\s+(puedo|puedes|puede|podemos|pod[eé]is|pueden|podr[ií]a|podr[ií]as)\b/i,
+  /\bno\s+(quiero|quieres|quiere|queremos|quer[eé]is|quieren|querr[ií]a|querr[ií]as)\b/i,
+  /\bno\s+(s[ée]|sabes|sabe|sabemos|sab[eé]is|saben)\b/i,
+  /\bno\s+(recuerdo|recuerdas|recuerda|recordamos|record[eá]is|recuerdan)\b/i,
+  /\bno\s+(funciona|funcionan|funcionaba|funcionab[aan]|funcionar[aá])\b/i,
+
+  // French - negation patterns
+  /\bje\s+ne\s+(comprends|comprend|comprendais|compris)\b/i,
+  /\bje\s+ne\s+(sais|sais|savait|su)\b/i,
+  /\bje\s+ne\s+(veux|veux|voulais|voulus)\b/i,
+  /\bje\s+ne\s+(peux|peux|pouvais|pus)\b/i,
+  /\bje\s+ne\s+(dois|dois|devais|d[uu])\b/i,
+  /\bje\s+ne\s+(me\s+)?souviens\b/i,
+  /\bil\s+ne\s+(fonctionne|fonctionnait|fonctionnera)\b/i,
+
+  // German - negation patterns
+  /\bich\s+(verstehe|verstand|verstanden)\s+nicht\b/i,
+  /\bich\s+(wei[sß]|wusste|gewusst)\s+nicht\b/i,
+  /\bich\s+(will|wollte|wollte)\s+nicht\b/i,
+  /\bich\s+(kann|konnte|gekonnt)\s+nicht\b/i,
+  /\bich\s+(muss|musste|gemusst)\s+nicht\b/i,
+  /\bich\s+erinnere\s+(mich|nicht)\b/i,
+  /\b(es|das)\s+(funktioniert|funktionierte|funktionieren)\s+nicht\b/i,
+
+  // Portuguese - negation patterns
+  /\b(eu\s+)?n[ãa]o\s+(entendo|entende|entend[ií])\b/i,
+  /\b(eu\s+)?n[ãa]o\s+(sei|sabe|sabia|soube)\b/i,
+  /\b(eu\s+)?n[ãa]o\s+(quero|quer|queria|quis)\b/i,
+  /\b(eu\s+)?n[ãa]o\s+(posso|pode|podia|p[^o]de)\b/i,
+  /\b(eu\s+)?n[ãa]o\s+(devo|deve|devia|deveu)\b/i,
+  /\b(eu\s+)?n[ãa]o\s+me\s+lembro\b/i,
+  /\bn[ãa]o\s+(funciona|funcionam|funcionava|funcionar[aá])\b/i,
+
+  // Dutch - negation patterns
+  /\bik\s+versta\s+(niet)\b/i,
+  /\bik\s+(weet|wist|geweten)\s+(niet)\b/i,
+  /\bik\s+(wil|wou|gewild)\s+(niet)\b/i,
+  /\bik\s+(kan|kon|gekund)\s+(niet)\b/i,
+  /\bik\s+(moet|moest|gemogen)\s+(niet)\b/i,
+  /\bhet\s+(werkt|werkte|gewerkt)\s+(niet)\b/i,
+
+  // Polish - negation patterns
+  /\b(nie)\s+(rozumiem|rozumiesz|rozumie|rozumia[lł]|zrozumia[lł])\b/i,
+  /\b(nie)\s+(wiem|wiesz|wie|wiedzia[lł])\b/i,
+  /\b(nie)\s+(chc[eę]|chcia[lł]em|chcia[lł])\b/i,
+  /\b(nie)\s+(potraf[ię]|mog[eę]|mog[lł]em|mog[lł])\b/i,
+  /\b(nie)\s+(musz[eę]|musia[lł]em|musia[lł])\b/i,
+  /\b(nie)\s+(dzia[lł]a|dzia[lł]a[lł])\b/i,
+
+  // Turkish - negation patterns
+  /\banlam[iı]yorum\b/i,
+  /\banlamad[iı]m\b/i,
+  /\bbilmiyorum\b/i,
+  /\bbilmedim\b/i,
+  /\bistemiyorum\b/i,
+  /\bistemeden\b/i,
+  /\bisteyemem\b/i,
+  /\bcal[iı][şs]m[iı]yor\b/i,
+];
+
+/**
  * AI Meta-Talk Patterns
  *
  * These patterns detect AI-generated content (summaries, meta-talk, task completions)
@@ -245,6 +343,11 @@ export function matchesNegativePattern(text: string, classification: string): bo
     return true;
   }
 
+  // Check for negation patterns - negations invalidate memory statements
+  if (NEGATION_PATTERNS.some(pattern => pattern.test(text))) {
+    return true;
+  }
+
   // Check for 1st person recall patterns (recounting, not storage request)
   if (FIRST_PERSON_RECALL_PATTERNS.some(pattern => pattern.test(text))) {
     return true;
@@ -270,6 +373,17 @@ export function getMatchingNegativePatterns(text: string, classification: string
   // Check AI meta-talk first
   if (isAIMetaTalk(text)) {
     matches.push('[AI_META_TALK]');
+  }
+
+  // Check negation patterns
+  if (NEGATION_PATTERNS.some(pattern => pattern.test(text))) {
+    matches.push('[NEGATION]');
+    // Add specific negation pattern sources
+    matches.push(
+      ...NEGATION_PATTERNS
+        .filter(pattern => pattern.test(text))
+        .map(p => p.source)
+    );
   }
 
   // Check 1st person recall patterns
