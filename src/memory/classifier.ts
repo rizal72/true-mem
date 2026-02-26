@@ -199,21 +199,31 @@ export function classifyWithExplicitIntent(
     return { classification, confidence, isolatedContent: text };
   }
 
-  // Extract explicit remember marker patterns with word boundaries and optional colon/whitespace
+  // Extract explicit remember marker patterns
+  // Pattern structure: IMPERATIVO [0-5 parole opzionali] CONNETTORE
+  // Questo permette "ricordati sempre che", "remember always that", etc.
   const markerPatterns = [
+    // Italian - con gruppo opzionale per parole intermedie
+    /\bricordati(?:\s+\w+){0,5}?\s+che\b:?\s*/gi,
+    /\bricordati\b:?\s*/gi,  // fallback senza "che" (es. "ricordati questo")
+    /\bricorda(?:\s+\w+){0,5}?\s+che\b:?\s*/gi,
     /\bricorda questo\b:?\s*/gi,
-    /\bremember this\b:?\s*/gi,
-    /\bricordati che\b:?\s*/gi,
-    /\bricorda che\b:?\s*/gi,
+    /\bricordami(?:\s+\w+){0,5}?\s+che\b:?\s*/gi,
+    /\bricordami che\b:?\s*/gi,
+    /\bmemorizza(?:\s+\w+){0,5}?\s+che\b:?\s*/gi,
     /\bmemorizza questo\b:?\s*/gi,
-    /\bmemorizza che\b:?\s*/gi,
     /\bmemorizziamo\b:?\s*/gi,
-    /\bricordiamoci che\b:?\s*/gi,
-    /\bricordiamoci di\b:?\s*/gi,
-    /\btieni a mente\b:?\s*/gi,
-    /\bkeep in mind\b:?\s*/gi,
-    /\bnota che\b:?\s*/gi,
-    /\bnote that\b:?\s*/gi,
+    /\bricordiamoci(?:\s+\w+){0,5}?\s+(?:che|di)\b:?\s*/gi,
+    /\btieni(?:\s+\w+){0,5}?\s+a mente\b:?\s*/gi,
+    /\bnota(?:\s+\w+){0,5}?\s+che\b:?\s*/gi,
+
+    // English - con gruppo opzionale per parole intermedie
+    /\bremember(?:\s+\w+){0,5}?\s+(?:this|that|to)\b:?\s*/gi,
+    /\bremember this\b:?\s*/gi,
+    /\bkeep(?:\s+\w+){0,5}?\s+in mind\b:?\s*/gi,
+    /\bnote(?:\s+\w+){0,5}?\s+that\b:?\s*/gi,
+    /\bdon'?t forget\b:?\s*/gi,
+    /\bmake sure to remember\b:?\s*/gi,
   ];
 
   // Find the FIRST occurrence of any explicit remember marker in the entire text
