@@ -15,16 +15,16 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 
 ## CURRENT STATUS
 
-**Aggiornamento**: 26/02/2026 - v1.0.10 - Toast + npm auth fix
+**Aggiornamento**: 26/02/2026 - v1.0.11 - MarkerPatterns flessibili
 
 ### Stato Implementazione
 
 | Componente | Status |
 |------------|--------|
-| Build (bun) | OK - 101.36 KB |
+| Build (bun) | OK - 105.76 KB |
 | TypeCheck | OK - 0 errors |
 | Runtime | OK - Funzionante |
-| npm | Pubblicato 1.0.10 |
+| npm | Pubblicato 1.0.11 |
 | GitHub Actions | OK - NPM_TOKEN secret |
 | Toast | OK - Tutte le sessioni |
 
@@ -45,6 +45,8 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 | npm OIDC auth fallita | NPM_TOKEN come GitHub Secret |
 | Toast solo nuove sessioni | Toast nel corpo plugin (tutte le sessioni) |
 | Versione "unknown" | findPackageJsonUp() come OMO-slim |
+| "ricordati sempre che" non matchava | markerPatterns con `(?:\s+\w+){0,5}?` |
+| Negazioni memorizzate | NEGATION_PATTERNS (10 lingue) |
 
 ---
 
