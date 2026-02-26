@@ -21,7 +21,7 @@
 
 ## Overview
 
-**True-Mem** is a production-ready memory plugin for OpenCode that enables AI coding agents to remember information across sessions and projects. It doesn't just store information - it manages memory like a human mind would.
+**True-Mem** is a memory plugin for OpenCode that enables AI coding agents to remember information across sessions and projects. It doesn't just store information - it manages memory like a human mind would.
 
 ---
 
@@ -72,7 +72,7 @@ What makes True-Mem different from a simple database? It's modeled after how hum
 | **Multilingual** | Full support for Italian, Spanish, French, German, and 11 more languages |
 | **Smart Decay** | Only episodic memories fade; preferences and decisions stay forever |
 | **Zero Native Dependencies** | Works on Bun and Node 22+ with built-in SQLite |
-| **Production-Ready** | Tested and stable |
+| **Multilingual** | Full support for Italian, Spanish, French, German, and 11 more languages |
 
 ---
 
@@ -297,5 +297,5 @@ sqlite3 ~/.true-mem/memory.db "SELECT classification, summary, strength FROM mem
 
 ---
 
-**License**: MIT  
-**Status**: Production-ready, actively maintained
+**License**: MIT
+**Status**: Actively maintained
