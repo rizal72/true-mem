@@ -27,9 +27,22 @@ let state: {
   realHooks: null,
 };
 
+// Track if toast shown (per process, not per session)
+let hasShownToast = false;
+
 const TrueMemory: Plugin = async (ctx) => {
   // Store ctx
   state.ctx = ctx;
+
+  // Show toast IMMEDIATELY when plugin loads (works for ALL sessions, including continued)
+  // OpenCode TUI only supports ONE toast at a time, so delay 3s to let OMO-slim finish
+  if (!hasShownToast) {
+    hasShownToast = true;
+    const version = getVersion();
+    setTimeout(() => {
+      showToast(ctx, `True-Mem v${version}`, 'Memory active.', 'info', 4000);
+    }, 3000);
+  }
 
   // Start initialization IMMEDIATELY but DON'T await
   state.initPromise = (async () => {
@@ -60,12 +73,6 @@ const TrueMemory: Plugin = async (ctx) => {
 
   return {
     event: async ({ event }) => {
-      // Show startup toast on session.created
-      if (event.type === 'session.created' && state.ctx) {
-        const version = getVersion();
-        showToast(state.ctx, `True-Mem v${version}`, 'Persistent memory plugin active.', 'info');
-      }
-
       // Skip noisy events synchronously
       const silentEvents = new Set(['message.part.delta', 'message.part.updated', 'session.diff']);
       if (silentEvents.has(event.type)) return;
