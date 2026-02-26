@@ -266,8 +266,8 @@ Want to contribute or test your own changes? Here's how:
    bun run build
    ```
 
-3. **Use your local version** in `~/.config/opencode/opencode.jsonc`:
-   ```jsonc
+3. **Use your local version** in `~/.config/opencode/opencode.json`:
+   ```json
    {
      "plugin": [
        "file:///path/to/your/fork/true-mem"
