@@ -192,6 +192,49 @@ Per memorizzare in **GLOBAL scope**, il testo deve contenere una keyword globale
 
 ---
 
+## Home Directory Behavior
+
+Quando una sessione viene lanciata dalla **cartella home** (`~/`) o da una directory che non è un progetto git:
+
+### Come viene determinato lo scope
+
+```ts
+// src/adapters/opencode/index.ts:127-129
+const isValidPath = (path: string | undefined): boolean => {
+  return !!(path && path !== '/' && path !== '\\' && path.trim().length > 0);
+};
+
+const worktree = isValidPath(ctx.worktree)
+  ? ctx.worktree
+  : (isValidPath(ctx.directory) ? ctx.directory : `unknown-project-${Date.now()}`);
+```
+
+La home (`/Users/riccardosallusti`) è un path **valido**, quindi viene usata come `worktree`.
+
+### Risultato pratico
+
+| Tipo memoria | Scope DB | Dove è visibile |
+|--------------|----------|-----------------|
+| preference, constraint, learning, procedural | `NULL` (Global) | **Ovunque** |
+| decision, semantic, episodic | `/Users/riccardosallusti` (Project) | **Solo dalla home** |
+
+### Comportamento attuale
+
+True-Mem tratta la home come un **"progetto generico"**:
+- Le memorie GLOBAL (preference, constraint, etc.) sono sempre visibili ovunque
+- Le memorie PROJECT create dalla home restano **isolate** nella home
+- Per rendere una memoria decision/semantic globale dalla home, usare keyword globali ("sempre", "ovunque")
+
+### Possibili evoluzioni future
+
+1. **Ignorare** memorie project-level quando non si è in un git repo
+2. **Promuovere automaticamente** a global le memorie create dalla home
+3. **Rilevare** se si è in `PROJECTS_ROOT` e usare scope diverso
+
+**Stato attuale**: Comportamento intenzionalmente lasciato così (home = progetto generico)
+
+---
+
 ## Four-Layer Defense (False Positive Prevention)
 
 1. **Question Detection** - Filtra domande (finiscono con ?)
