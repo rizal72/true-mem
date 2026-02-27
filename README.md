@@ -143,6 +143,16 @@ Just have conversations with OpenCode. True-Mem extracts relevant info in the ba
 - Bugfixes: "Fixed null pointer in auth module"
 - Learning: "I learned that bun:sqlite is built-in"
 
+### List Injected Memories
+
+To see which memories are currently injected in your prompt, use:
+
+```
+list-memories
+```
+
+This command displays all memories (LTM and STM) that True-Mem has injected into the current conversation context. Useful for debugging or understanding what the AI remembers about you.
+
 ### Explicit Memory Storage
 
 Use phrases like "Remember this:" or "Remember that ..." to force storage:
