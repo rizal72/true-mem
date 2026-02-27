@@ -246,13 +246,20 @@ sqlite3 ~/.true-mem/memory.db "UPDATE memory_units SET status='deleted' WHERE id
 
 ### ⚠️ REGOLA CRITICA
 
-**PRIMA di pushare per un release, fare SEMPRE bump versione:**
+**PRIMA di pushare per un release, fare SEMPRE bump versione con messaggio descrittivo:**
 
 ```bash
-npm version patch   # per bug fix (1.0.14 → 1.0.15)
-npm version minor   # per nuove feature (1.0.14 → 1.1.0)
-npm version major   # per breaking changes (1.0.14 → 2.0.0)
+npm version patch -m "release: v%s - <FEATURE_NAME>"   # per bug fix
+npm version minor -m "release: v%s - <FEATURE_NAME>"   # per nuove feature  
+npm version major -m "release: v%s - <FEATURE_NAME>"   # per breaking changes
 ```
+
+**Sostituire `<FEATURE_NAME>` con la feature/fix principale di quel release.**
+
+**Esempi:**
+- `npm version patch -m "release: v%s - list-memories command"`
+- `npm version patch -m "release: v%s - fix circular import"`
+- `npm version minor -m "release: v%s - multi-language support"`
 
 Il workflow si attiva SOLO quando `package.json` cambia (versione nuova).
 
