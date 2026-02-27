@@ -153,6 +153,18 @@ list-memories
 
 This command displays all memories (LTM and STM) that True-Mem has injected into the current conversation context. Useful for debugging or understanding what the AI remembers about you.
 
+### Delete a Memory
+
+To delete a specific memory, ask your AI assistant to remove it from the database. Provide enough context to identify the memory:
+
+```
+"Delete the memory about using bun"
+"Remove the memory that says 'always run tests'"
+"Delete the bugfix memory about the auth timeout"
+```
+
+The AI assistant can directly query and update the SQLite database at `~/.true-mem/memory.db`.
+
 ### Explicit Memory Storage
 
 Use phrases like "Remember this:" or "Remember that ..." to force storage:
