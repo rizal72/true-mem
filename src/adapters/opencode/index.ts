@@ -195,18 +195,20 @@ export async function createTrueMemoryPlugin(
         if (memories.length > 0) {
           const memoryList = formatMemoryListForResponse(memories);
 
-          // Inject as a new part in the message
-          output.parts.push({
-            type: 'text',
-            text: `\n\n[TRUE-MEM] Ecco le memorie iniettate in questo prompt:\n${memoryList}`,
-          } as Part);
+          // Find the first text part and append the memory list to it
+          // This avoids needing to provide id, sessionID, messageID for a new part
+          const firstTextPart = output.parts.find(part => part.type === 'text' && 'text' in part);
+          if (firstTextPart && 'text' in firstTextPart) {
+            firstTextPart.text += `\n\n[TRUE-MEM] Ecco le memorie iniettate in questo prompt:\n${memoryList}`;
+          }
 
           log(`Memory list request detected: injected ${memories.length} memories`);
         } else {
-          output.parts.push({
-            type: 'text',
-            text: '\n\n[TRUE-MEM] Nessuna memoria iniettata in questo prompt.',
-          } as Part);
+          // Find the first text part and append the no-memories message
+          const firstTextPart = output.parts.find(part => part.type === 'text' && 'text' in part);
+          if (firstTextPart && 'text' in firstTextPart) {
+            firstTextPart.text += '\n\n[TRUE-MEM] Nessuna memoria iniettata in questo prompt.';
+          }
         }
       }
     },
