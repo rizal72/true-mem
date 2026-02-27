@@ -134,6 +134,54 @@ src/
 
 ---
 
+## Embeddings: Storia Implementazione
+
+### Originale: Vector Embeddings con Transformers.js
+
+La prima implementazione usava **true semantic embeddings**:
+
+| Componente | Dettaglio |
+|------------|-----------|
+| Libreria | `@huggingface/transformers` |
+| Modello | `Xenova/all-MiniLM-L6-v2` (quantized) |
+| RAM | ~43MB |
+| Performance | Prima chiamata: 2-3s (model loading), successive: 50-100ms |
+| Retrieval | Cosine similarity su vector a 384 dimensioni |
+
+**Vantaggi:**
+- True semantic search (sinonimi, concetti correlati)
+- "error" matcha "exception", "bug" matcha "issue"
+
+### Perché abbandonato
+
+| Problema | Dettaglio |
+|----------|-----------|
+| **Bundling** | `bun build` bundleava male → richiedeva `eval('import(...)')` hack |
+| **Crash all'uscita** | Transformers.js non si puliva correttamente → OpenCode crashava |
+| **Complessità** | Dipendenza ML nativa, overhead di manutenzione |
+
+### Soluzione attuale: Jaccard Similarity
+
+Il file `src/memory/embeddings.ts` è diventato uno **stub**:
+- `jaccardSimilarity(text1, text2)` → calcola overlap parole
+- Tutte le funzioni vector restituiscono valori vuoti
+
+**Trade-off:**
+- No sinonimi ("error" ≠ "exception")
+- Ma: zero dipendenze, zero crash, istantaneo
+- Per coding assistant: sufficiente (termini tecnici consistenti)
+
+### Possibile ripresa futura
+
+Se Transformers.js risolve i problemi di cleanup:
+1. Rimuovere lo stub da `embeddings.ts`
+2. Ripristinare implementazione originale (vedere commit `b93bc50`)
+3. Aggiornare `package.json` con dipendenza `@huggingface/transformers`
+
+**Riferimento:** PLAN.md originale nel commit `d4325f0` contiene implementazione completa.
+
+---
+
 ## Estrazione Memorie
 
 **Trigger**: `session.idle` (quando l'utente smette di scrivere)
