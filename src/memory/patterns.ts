@@ -728,7 +728,7 @@ export function getSupportedClassifications(): string[] {
  * Command to list injected memories
  * Simple pattern to avoid false positives
  */
-export const MEMORY_LIST_COMMAND_PATTERN = /^(list-memories|list memories)$/i;
+export const MEMORY_LIST_COMMAND_PATTERN = /^list-memories$/i;
 
 /**
  * Check if text is the memory list command
