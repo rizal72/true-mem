@@ -937,26 +937,57 @@ Write a structured summary: task, accomplishments, remaining work, critical cont
 
 /**
  * Format memories for response to user
+ * Groups by scope (Global/Project) then by store (LTM/STM)
  */
 function formatMemoryListForResponse(memories: MemoryUnit[]): string {
   const lines: string[] = [];
 
-  // Separate by store
-  const ltm = memories.filter(m => m.store === 'ltm');
-  const stm = memories.filter(m => m.store === 'stm');
+  // Separate by scope
+  const globalMemories = memories.filter(m => !m.projectScope);
+  const projectMemories = memories.filter(m => m.projectScope);
 
-  if (ltm.length > 0) {
-    lines.push('**Memorie permanenti (LTM):**');
-    for (const mem of ltm) {
-      lines.push(`• [${mem.classification}] ${mem.summary}`);
+  // Global scope section
+  if (globalMemories.length > 0) {
+    lines.push('**GLOBAL SCOPE:**');
+    
+    const ltm = globalMemories.filter(m => m.store === 'ltm');
+    const stm = globalMemories.filter(m => m.store === 'stm');
+
+    if (ltm.length > 0) {
+      lines.push('**LTM:**');
+      for (const mem of ltm) {
+        lines.push(`• [${mem.classification}] ${mem.summary}`);
+      }
+    }
+
+    if (stm.length > 0) {
+      lines.push('**STM:**');
+      for (const mem of stm) {
+        lines.push(`• [${mem.classification}] ${mem.summary}`);
+      }
     }
     lines.push('');
   }
 
-  if (stm.length > 0) {
-    lines.push('**Memorie temporanee (STM):**');
-    for (const mem of stm) {
-      lines.push(`• [${mem.classification}] ${mem.summary}`);
+  // Project scope section
+  if (projectMemories.length > 0) {
+    lines.push('**PROJECT SCOPE:**');
+    
+    const ltm = projectMemories.filter(m => m.store === 'ltm');
+    const stm = projectMemories.filter(m => m.store === 'stm');
+
+    if (ltm.length > 0) {
+      lines.push('**LTM:**');
+      for (const mem of ltm) {
+        lines.push(`• [${mem.classification}] ${mem.summary}`);
+      }
+    }
+
+    if (stm.length > 0) {
+      lines.push('**STM:**');
+      for (const mem of stm) {
+        lines.push(`• [${mem.classification}] ${mem.summary}`);
+      }
     }
   }
 
