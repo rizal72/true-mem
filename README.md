@@ -273,7 +273,7 @@ true-mem/
 
 ## Inspiration
 
-This project was inspired by [PsychMem](https://github.com/muratg98/psychmem) - a pioneering plugin for persistent memory in OpenCode. True-Mem builds on those ideas with a focus on cognitive psychology models and production stability.
+This project was inspired by [PsychMem](https://github.com/muratg98/psychmem) - a pioneering plugin for persistent memory in OpenCode. True-Mem builds on those ideas with a focus on minimizing false positives, reducing AI noise, and optimizing token usage through smart recognition and relevance filtering.
 
 ---
 
