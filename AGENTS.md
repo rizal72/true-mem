@@ -213,6 +213,35 @@ Se Transformers.js risolve i problemi di cleanup:
 | semantic | Mai | Project | "API usa REST" |
 | episodic | Si (7gg) | Project | "Ieri abbiamo refactorato" |
 
+### Pattern di Classificazione
+
+**Episodic** - Riconoscimento automatico tramite marker temporali:
+- **IT**: "ieri", "oggi", "abbiamo fatto", "siamo arrivati", "durante la call", "nel meeting"
+- **EN**: "yesterday", "today", "we did", "we made", "during the session", "in the meeting"
+- **Boosters**: "session", "call", "meeting", "just", "adesso"
+
+**Priorità Classificazioni** (ordine di valutazione):
+1. `episodic` - Eventi temporali specifici
+2. `decision` - Scelte architetturali
+3. `learning` - Scoperte permanenti (senza marker temporali)
+4. `preference` - Preferenze utente
+5. `constraint` - Vincoli assoluti
+6. `procedural` - Workflow e procedure
+
+**Nota**: Quando una frase contiene sia marker temporali ("ieri") che keyword di apprendimento ("ho imparato"), vince `episodic` perché l'evento è specifico nel tempo.
+
+### Pre-filtraggio Contenuti
+
+Prima della classificazione, il sistema filtra automaticamente:
+- **URL > 150 caratteri** - Skip (evita API dumps, stack traces)
+- **Contenuti > 500 caratteri** - Skip (evita clipboard accidentali)
+
+Questo previene la memorizzazione di:
+- Stack trace completi
+- Output di log
+- URL con query parameters lunghi
+- Contenuti copiati accidentalmente
+
 ---
 
 ## Scope Logic (Explicit Intent)
