@@ -13,6 +13,7 @@ import type { PluginInput } from '@opencode-ai/plugin';
 import { log } from './logger.js';
 import { getVersion } from './utils/version.js';
 import { showToast } from './utils/toast.js';
+import { EmbeddingService } from './memory/embeddings-nlp.js';
 
 // Singleton state - shared across all hook calls
 let state: {
@@ -65,6 +66,17 @@ const TrueMemory: Plugin = async (ctx) => {
         const { createTrueMemoryPlugin } = await import('./adapters/opencode/index.js');
         state.realHooks = await createTrueMemoryPlugin(state.ctx);
         state.initialized = true;
+
+        // Initialize NLP embeddings if feature flag is set
+        if (process.env.TRUE_MEM_EMBEDDINGS) {
+          const embeddingService = EmbeddingService.getInstance();
+          const initialized = await embeddingService.initialize();
+          if (initialized) {
+            log('NLP embeddings enabled');
+          } else {
+            log('NLP embeddings failed to initialize, using Jaccard only');
+          }
+        }
 
         log('Phase 1 complete - Plugin ready');
       } catch (error) {

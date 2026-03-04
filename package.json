@@ -13,7 +13,7 @@
   },
   "scripts": {
     "preversion": "bun run build",
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc --emitDeclarationOnly",
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc --emitDeclarationOnly && bun build src/memory/embedding-worker.ts --outdir dist/memory --target bun --format esm",
     "dev": "bun build src/index.ts --outdir dist --target bun --format esm --watch",
     "typecheck": "tsc --noEmit"
   },
@@ -42,6 +42,7 @@
     "LICENSE"
   ],
   "dependencies": {
+    "@huggingface/transformers": "^4.0.0-next.1",
     "@opencode-ai/plugin": "^1.2.6",
     "@opencode-ai/sdk": "^1.2.6",
     "uuid": "^13.0.0"

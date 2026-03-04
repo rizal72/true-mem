@@ -28,37 +28,20 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 | GitHub Actions | OK - NPM_TOKEN secret |
 | Toast | OK - Tutte le sessioni |
 
-### Bug Risolti
+### Branch Attivi
 
-| Bug | Soluzione |
-|-----|-----------|
-| bugfix classification noise | Removed classification + DB migration v3 |
-| esbuild crash | bun build |
-| QUEUED state | Opzione B + maintenance a session.end |
-| Duplicate memories | content_hash + global debounce 2s |
-| AI meta-talk | Pattern filtering (pipes, markdown tables) |
-| Preference false positives | Question detection + list selection + sentence-level scoring |
-| 1st person recall | FIRST_PERSON_RECALL_PATTERNS (10 lingue) |
-| "Ricordami" ambiguity | REMIND_RECALL_PATTERNS (10 lingue) |
-| Global scope retrieval | Query SQL allineata |
-| Query consistency | vectorSearch = getMemoriesByScope |
-| Explicit intent scope | Default PROJECT, keyword per GLOBAL |
-| npm OIDC auth fallita | NPM_TOKEN come GitHub Secret |
-| Toast solo nuove sessioni | Toast nel corpo plugin (tutte le sessioni) |
-| Versione "unknown" | findPackageJsonUp() come OMO-slim |
-| "ricordati sempre che" non matchava | markerPatterns con `(?:\s+\w+){0,5}?` |
-| Negazioni memorizzate | NEGATION_PATTERNS (10 lingue) |
-| lastExtractionTime race condition | Update solo quando extraction avviene |
-| DB transaction async issue | vectorSearch fuori transazione |
-| Watermark loop infinito | messagesProcessed logic |
-| extractionSucceeded flag | Flag per trackare successo estrazione |
-| getMemory null assertion | Null check + try-catch |
-| vectorSearch consistency | Empty query skip con return [] |
-| injectedSessions leak | Filter active sessions + reset |
-| worktree fallback | Fallback a "/" invece di undefined |
-| singleton state sync | Refactor per sincronizzare stato |
-| markerPatterns ignorato | Check markerPatterns PRIMA del signal check |
-| Global keyword in marker | `hasGlobalScopeKeyword(text)` invece di `isolatedContent` |
+| Branch | Scopo | Status |
+|--------|-------|--------|
+| `main` | Produzione (Jaccard only) | Stable v1.1.1 |
+| `NLP` | **Esperimento NLP** - Transformers.js v4 + embeddings ibridi | Testing locale |
+
+**Esperimento NLP:**
+- Branch isolato per testare embeddings semantici
+- Architettura ibrida: Jaccard (baseline) + Transformers.js (opzionale)
+- Feature flag: `TRUE_MEM_EMBEDDINGS=1`
+- Documentazione: `docs/nlp-embeddings-analysis.md`
+- **NON per rilascio** - Solo test locali
+- Rischi: Crash all'uscita, memory leaks (noti da v3)
 
 ---
 

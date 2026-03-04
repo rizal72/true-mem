@@ -1,12 +1,13 @@
 /**
- * True-Mem Embeddings (Stub - Jaccard Similarity)
- * Replaced Transformers.js with Jaccard similarity (word overlap)
+ * True-Mem Embeddings (Hybrid: Jaccard + Transformers.js)
+ * Jaccard similarity as baseline, optional NLP embeddings via Transformers.js
  */
 
 import { log } from '../logger.js';
+import { EmbeddingService } from './embeddings-nlp.js';
 
 // =============================================================================
-// Stub Functions (No Vector Embeddings)
+// Jaccard Similarity (Always Available)
 // =============================================================================
 
 /**
@@ -109,4 +110,75 @@ export function bufferToVector(buffer: Buffer): Float32Array {
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   log('Warning: cosineSimilarity called (no-op in Jaccard mode, returning 0)');
   return 0;
+}
+
+// =============================================================================
+// Hybrid Similarity (Jaccard + NLP Embeddings)
+// =============================================================================
+
+/**
+ * Calculate hybrid similarity between two texts
+ * Uses Jaccard as baseline, blends with NLP embeddings if available
+ *
+ * @param text1 - First text
+ * @param text2 - Second text
+ * @returns number - Hybrid similarity (0 to 1)
+ */
+export async function getSimilarity(text1: string, text2: string): Promise<number> {
+  // Fast path: Jaccard for exact keyword matches
+  const jaccardScore = jaccardSimilarity(text1, text2);
+
+  // If high confidence from Jaccard, return immediately
+  if (jaccardScore > 0.7) {
+    return jaccardScore;
+  }
+
+  // Semantic path: Use embeddings if available
+  const embeddingService = EmbeddingService.getInstance();
+  
+  if (!embeddingService.isEnabled()) {
+    // Fallback: Jaccard only
+    return jaccardScore;
+  }
+
+  try {
+    const embeddings = await embeddingService.getEmbeddings([text1, text2]);
+
+    if (embeddings && embeddings.length === 2 && embeddings[0] && embeddings[1]) {
+      const cosineScore = cosineSimilarityArrays(embeddings[0], embeddings[1]);
+      // Blend Jaccard and cosine (weighted average)
+      return (jaccardScore * 0.3) + (cosineScore * 0.7);
+    }
+  } catch (error) {
+    log('Hybrid similarity failed, falling back to Jaccard:', error);
+  }
+
+  // Fallback: Jaccard only
+  return jaccardScore;
+}
+
+/**
+ * Calculate cosine similarity between two vectors (arrays)
+ */
+function cosineSimilarityArrays(vec1: number[], vec2: number[]): number {
+  if (!vec1 || !vec2 || vec1.length === 0 || vec2.length === 0) {
+    return 0;
+  }
+
+  let dotProduct = 0;
+  let norm1 = 0;
+  let norm2 = 0;
+
+  for (let i = 0; i < vec1.length; i++) {
+    const v1 = vec1[i] ?? 0;
+    const v2 = vec2[i] ?? 0;
+    dotProduct += v1 * v2;
+    norm1 += v1 * v1;
+    norm2 += v2 * v2;
+  }
+
+  const denominator = Math.sqrt(norm1) * Math.sqrt(norm2);
+  if (denominator === 0) return 0;
+  
+  return dotProduct / denominator;
 }

@@ -22,6 +22,7 @@ import { registerShutdownHandler } from '../../shutdown.js';
 import { parseConversationLines } from '../../memory/role-patterns.js';
 import { getAtomicMemories, wrapMemories, type InjectionState } from './injection.js';
 import { getVersion } from '../../utils/version.js';
+import { EmbeddingService } from '../../memory/embeddings-nlp.js';
 
 // Debounce state for message.updated events
 let messageDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -117,6 +118,12 @@ export async function createTrueMemoryPlugin(
 
   // Register shutdown handler for database
   registerShutdownHandler('database', () => db.close());
+
+  // Register shutdown handler for embeddings
+  registerShutdownHandler('embeddings', () => {
+    const embeddingService = EmbeddingService.getInstance();
+    embeddingService.cleanup();
+  });
 
   // Resolve project root with explicit validation
   // P3-1: Prevent falling back to "/" which matches all memories
