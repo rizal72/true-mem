@@ -61,8 +61,24 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 | Global keyword in marker | `hasGlobalScopeKeyword(text)` invece di `isolatedContent` |
 
 **Implementazione:**
-- **File nuovi:** `src/memory/embeddings-nlp.ts` (EmbeddingService), `src/memory/embedding-worker.ts` (worker thread)
-- **Modificati:** `src/memory/embeddings.ts` (hybrid getSimilarity), `src/index.ts` (init), `package.json` (dipendenza transformers)
+
+```
+Main Thread (TUI)
+  ├─ Jaccard (sempre attivo, fallback)
+  └─ EmbeddingService (opzionale)
+       └─ Worker Thread (isolato)
+            ├─ Transformers.js v4
+            ├─ all-MiniLM-L6-v2 (q8 quantized)
+            └─ Memory monitoring (500MB cap)
+```
+
+| Componente | File | Funzione |
+|------------|------|----------|
+| EmbeddingService | `src/memory/embeddings-nlp.ts` | Singleton con circuit breaker |
+| Worker thread | `src/memory/embedding-worker.ts` | Isolamento Transformers.js |
+| Hybrid similarity | `src/memory/embeddings.ts` | Jaccard + cosine blending |
+| Init/Cleanup | `src/index.ts`, `src/adapters/opencode/index.ts` | Startup/shutdown handlers |
+
 - **Modello:** `all-MiniLM-L6-v2` (q8 quantized, 384 dims, CPU only)
 - **Safety:** Circuit breaker (3 fallimenti/5min), memory cap 500MB, timeout 5s, graceful degradation a Jaccard
 
