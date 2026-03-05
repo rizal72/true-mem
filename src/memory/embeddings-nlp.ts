@@ -94,6 +94,13 @@ export class EmbeddingService {
     }
 
     try {
+      // CRITICAL: Kill any existing worker before spawning new one
+      if (this.worker && !this.worker.killed) {
+        log('Killing stale worker before spawning new one');
+        this.worker.kill('SIGKILL');
+        this.worker = null;
+      }
+      
       // Create promise BEFORE spawning worker (race condition)
       this.readyPromise = new Promise((resolve) => {
         this.readyResolve = resolve;
@@ -188,17 +195,21 @@ export class EmbeddingService {
       });
 
       // Wait for worker to be ready (max 30 seconds)
+      let timeoutCancelled = false;
       let initTimeout: ReturnType<typeof setTimeout> | null = null;
       const timeoutPromise = new Promise<boolean>((resolve) => {
         initTimeout = setTimeout(() => {
-          log('Embedding worker initialization timeout');
-          resolve(false);
+          if (!timeoutCancelled) {
+            log('Embedding worker initialization timeout');
+            resolve(false);
+          }
         }, 30000);
       });
 
       const workerReady = await Promise.race([this.readyPromise, timeoutPromise]);
       
-      // CRITICAL: Clear timeout if worker became ready before timeout
+      // CRITICAL: Cancel timeout promise if worker became ready before timeout
+      timeoutCancelled = true;
       if (initTimeout) {
         clearTimeout(initTimeout);
         initTimeout = null;
