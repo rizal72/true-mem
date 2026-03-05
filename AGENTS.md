@@ -57,6 +57,45 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 - ⚠️ Embeddings usate solo in `tool.execute.before`, non nel retrieval globale delle memorie
 - ⚠️ Non testato in produzione
 
+### Bun Panic Crash - Problema Noto e Ricorrente
+
+**Status:** Problema critico di stabilità, MULTIPLE TENTATIVI DI FIX FALLITI
+
+**Sintomo:**
+```
+panic(main thread): A C++ exception occurred
+oh no: Bun has crashed. This indicates a bug in Bun, not your code.
+```
+
+**Quando si verifica:**
+- Durante l'elaborazione embeddings nel worker thread (30s window)
+- Dopo inizializzazione corretta di Transformers.js
+- Durante chiamate `extract()` nel worker
+- Blocca terminale, visibile solo alla chiusura di OpenCode
+- Causa riavvio plugin + worktree "unknown"
+
+**Cosa abbiamo provato (senza successo):**
+1. ✅ Single listener pattern (ridotto da 200+ a 1 listener)
+2. ✅ SIGINT handler nel worker
+3. ✅ Graceful shutdown con messaggio + timeout
+4. ✅ Circuit breaker (3 fallimenti/5min)
+5. ✅ Memory cap 500MB
+6. ✅ Worker isolato in thread separato
+7. ✅ Dynamic import via `eval('import()')`
+
+**Root Cause:**
+Instabilità fondamentale tra **Bun v1.3.10** e **Transformers.js v4** - il crash è un C++ exception in Bun stesso, non nel nostro codice. Possibili cause:
+- WASM/WebAssembly incompatibility con Bun
+- Memory leak in Transformers.js non gestito da Bun
+- Bug Bun nel garbage collection di worker threads
+
+**Decisione:**
+- **DEFAULT:** `TRUE_MEM_EMBEDDINGS=0` (Jaccard-only, stabile)
+- **OPZIONALE:** `TRUE_MEM_EMBEDDINGS=1` (sperimentale, rischio crash)
+- **NON BLOCCANTE** per release - embeddings sono feature opzionale
+
+**Riferimento:** Questo problema è documentato anche in commit history e issue tracker Bun.
+
 **Workflow Raccomandato:**
 ```bash
 # Usa develop branch con Jaccard-only (comportamento = main)
