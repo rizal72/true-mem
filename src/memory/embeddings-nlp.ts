@@ -54,7 +54,11 @@ export class EmbeddingService {
       });
 
       // Create worker thread for embeddings
-      const workerPath = path.join(__dirname, 'embedding-worker.js');
+      // FIX: Use import.meta.url to resolve correct path in bundled environment
+      const currentDir = path.dirname(url.fileURLToPath(import.meta.url));
+      const workerPath = path.join(currentDir, 'embedding-worker.js');
+      
+      log('Spawning worker at path:', workerPath);
       
       this.worker = new Worker(workerPath, {
         workerData: { model: 'Xenova/all-MiniLM-L6-v2' }
