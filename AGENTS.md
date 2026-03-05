@@ -574,12 +574,17 @@ Le 20 memorie vengono selezionate solo per **strength** (forza), ignorando:
 **Proposta: Allocazione Dinamica con Scope Quotas**
 
 ```
-Limite totale: 20 memorie
+Limite totale: 20 memorie (configurabile, vedi sotto)
 
-Scope Quotas (minimum guarantees):
-├─ Min 6 GLOBAL (preferences, constraints, learning, procedural)
-├─ Min 6 PROJECT (decisions, semantic, episodic)
-└─ Max 8 flessibili (context-relevant da entrambi gli scope)
+Scope Quotas (minimum guarantees - scalano proporzionalmente):
+├─ Min 30% GLOBAL (preferences, constraints, learning, procedural)
+├─ Min 30% PROJECT (decisions, semantic, episodic)
+└─ Max 40% flessibili (context-relevant da entrambi gli scope)
+
+Esempi di scaling:
+- Limite 20: 6 GLOBAL + 6 PROJECT + 8 flessibili
+- Limite 30: 9 GLOBAL + 9 PROJECT + 12 flessibili
+- Limite 15: 4 GLOBAL + 4 PROJECT + 7 flessibili
 
 Classification Priority:
 Tier 0: constraint (sempre inclusi, no limite - regole critiche)
@@ -589,18 +594,20 @@ Tier 3: semantic, episodic (bassa priorità, dipende dal contesto)
 ```
 
 **Vantaggi:**
-- **Scope protection**: GLOBAL preferences non annegano PROJECT context (e viceversa)
+- **Scope protection**: GLOBAL preferences non annegano PROJECT context (min 30% ciascuno)
 - **Adattivo**: Funziona sia per nuovi utenti (poche memorie) che power user (tante)
+- **Scalabile**: I quotas si adattano automaticamente al limite configurato
 - **Qualità**: 20 memorie rilevanti > 30 memorie casuali
-- **Token stable**: Sempre 20 memorie, costo prevedibile
+- **Token stable**: Costo prevedibile, proporzionale al limite scelto
 
 **Esempi:**
 
 | Scenario | Risultato |
 |----------|-----------|
 | Nuovo utente (3 memorie) | Tutte incluse, nessuno spreco |
-| Power user (15 GLOBAL + 30 PROJECT) | 6 GLOBAL garantiti + 6 PROJECT garantiti + 8 flessibili |
-| Query specifica ("fix database") | Memorie rilevanti al database prioritarie nei 8 slot flessibili |
+| Power user, limite 20 (15 GLOBAL + 30 PROJECT) | 6 GLOBAL + 6 PROJECT + 8 flessibili |
+| Power user, limite 30 (15 GLOBAL + 30 PROJECT) | 9 GLOBAL + 9 PROJECT + 12 flessibili |
+| Query specifica ("fix database") | Memorie rilevanti prioritarie negli slot flessibili |
 
 **Implementazione:**
 - Vedi `docs/embeddings-implementation-plan.md` per piano dettagliato

@@ -205,12 +205,16 @@ async function selectMemoriesForInjection(
   db: MemoryDatabase,
   worktree: string,
   queryContext: string,
-  embeddingsEnabled: boolean
+  embeddingsEnabled: boolean,
+  maxMemories: number = 20  // User-configurable, default 20
 ): Promise<MemoryUnit[]> {
-  const MAX_TOTAL = 20;
-  const MIN_GLOBAL = 6;
-  const MIN_PROJECT = 6;
-  const MAX_FLEXIBLE = 8;
+  // Scale quotas proportionally to maxMemories
+  // Default (20): 6 GLOBAL + 6 PROJECT + 8 FLEXIBLE
+  // High (30):    9 GLOBAL + 9 PROJECT + 12 FLEXIBLE
+  // Low (15):     4 GLOBAL + 4 PROJECT + 7 FLEXIBLE
+  const MIN_GLOBAL = Math.floor(maxMemories * 0.3);    // 30% of total
+  const MIN_PROJECT = Math.floor(maxMemories * 0.3);  // 30% of total
+  const MAX_FLEXIBLE = maxMemories - MIN_GLOBAL - MIN_PROJECT;  // Remaining ~40%
   
   const memories: MemoryUnit[] = [];
   
@@ -223,7 +227,7 @@ async function selectMemoriesForInjection(
   const constraints = allMemories.filter(m => m.classification === 'constraint');
   memories.push(...constraints);
   
-  // Step 3: Scope quotas - Minimum guarantees
+  // Step 3: Scope quotas - Minimum guarantees (scaled to maxMemories)
   // GLOBAL: Top by strength (preference, learning, procedural)
   const globalHigh = globalMemories
     .filter(m => !memories.find(existing => existing.id === m.id))
@@ -238,8 +242,8 @@ async function selectMemoriesForInjection(
     .slice(0, MIN_PROJECT);
   memories.push(...projectHigh);
   
-  // Step 4: Flexible slots - Context-relevant selection
-  const remainingSlots = MAX_TOTAL - memories.length;
+  // Step 4: Flexible slots - Context-relevant selection (scaled)
+  const remainingSlots = maxMemories - memories.length;
   
   if (remainingSlots > 0 && embeddingsEnabled && queryContext.trim().length > 0) {
     // Use vectorSearch for semantic relevance
@@ -250,7 +254,7 @@ async function selectMemoriesForInjection(
     const newMemories = relevant.filter(m => !existingIds.has(m.id));
     memories.push(...newMemories.slice(0, remainingSlots));
     
-    log(`Dynamic selection: ${memories.length} total (${globalHigh.length} global + ${projectHigh.length} project + ${newMemories.length} context-relevant)`);
+    log(`Dynamic selection: ${memories.length} total (${globalHigh.length} global + ${projectHigh.length} project + ${newMemories.length} context-relevant) [max=${maxMemories}]`);
   } else if (remainingSlots > 0) {
     // Fallback: Fill with highest strength from either scope
     const remaining = allMemories
@@ -259,10 +263,10 @@ async function selectMemoriesForInjection(
       .slice(0, remainingSlots);
     memories.push(...remaining);
     
-    log(`Fallback selection: ${memories.length} total (strength-based)`);
+    log(`Fallback selection: ${memories.length} total (strength-based) [max=${maxMemories}]`);
   }
   
-  return memories.slice(0, MAX_TOTAL); // Hard limit
+  return memories.slice(0, maxMemories); // Hard limit at user-configured max
 }
 ```
 
@@ -534,11 +538,15 @@ async function extractQueryContextFromInput(
 /**
  * Select memories for injection using dynamic allocation with scope quotas
  * 
- * Strategy:
- * - Min 6 GLOBAL (preferences, constraints, learning, procedural)
- * - Min 6 PROJECT (decisions, semantic, episodic)
- * - Max 8 flexible (context-relevant from either scope)
- * - Total: 20 memories (maintains current token cost)
+ * Strategy (values scale proportionally to maxMemories):
+ * - Min 30% GLOBAL (preferences, constraints, learning, procedural)
+ * - Min 30% PROJECT (decisions, semantic, episodic)
+ * - Max 40% flexible (context-relevant from either scope)
+ * 
+ * Examples:
+ * - maxMemories=20: 6 GLOBAL + 6 PROJECT + 8 FLEXIBLE
+ * - maxMemories=30: 9 GLOBAL + 9 PROJECT + 12 FLEXIBLE
+ * - maxMemories=15: 4 GLOBAL + 4 PROJECT + 7 FLEXIBLE
  * 
  * Classification Priority:
  * Tier 0: constraint (always include, no limit - critical rules)
@@ -550,13 +558,19 @@ export async function selectMemoriesForInjection(
   db: MemoryDatabase,
   worktree: string,
   queryContext: string,
-  embeddingsEnabled: boolean
+  embeddingsEnabled: boolean,
+  maxMemories: number = 20  // User-configurable, default 20
 ): Promise<MemoryUnit[]> {
   const memories: MemoryUnit[] = [];
-  const MAX_TOTAL = 20;
-  const MIN_GLOBAL = 6;
-  const MIN_PROJECT = 6;
-  const MAX_FLEXIBLE = 8;
+  
+  // Scale quotas proportionally to user-configured maxMemories
+  // Examples:
+  // - maxMemories=20: 6 GLOBAL + 6 PROJECT + 8 FLEXIBLE
+  // - maxMemories=30: 9 GLOBAL + 9 PROJECT + 12 FLEXIBLE
+  // - maxMemories=15: 4 GLOBAL + 4 PROJECT + 7 FLEXIBLE
+  const MIN_GLOBAL = Math.floor(maxMemories * 0.3);    // 30% of total
+  const MIN_PROJECT = Math.floor(maxMemories * 0.3);  // 30% of total
+  const MAX_FLEXIBLE = maxMemories - MIN_GLOBAL - MIN_PROJECT;  // ~40% remaining
   
   // Step 1: Get all memories for current scope (GLOBAL + current PROJECT)
   const allMemories = db.getMemoriesByScope(worktree, 100);
@@ -567,7 +581,7 @@ export async function selectMemoriesForInjection(
   const constraints = allMemories.filter(m => m.classification === 'constraint');
   memories.push(...constraints);
   
-  // Step 3: Scope quotas - Minimum guarantees
+  // Step 3: Scope quotas - Minimum guarantees (scaled to maxMemories)
   // GLOBAL: Top by strength (preference, learning, procedural)
   const globalHigh = globalMemories
     .filter(m => !memories.find(existing => existing.id === m.id))
@@ -582,8 +596,8 @@ export async function selectMemoriesForInjection(
     .slice(0, MIN_PROJECT);
   memories.push(...projectHigh);
   
-  // Step 4: Flexible slots - Context-relevant selection
-  const remainingSlots = MAX_TOTAL - memories.length;
+  // Step 4: Flexible slots - Context-relevant selection (scaled)
+  const remainingSlots = maxMemories - memories.length;
   
   if (remainingSlots > 0 && embeddingsEnabled && queryContext.trim().length > 0) {
     // Use vectorSearch for semantic relevance
@@ -594,7 +608,7 @@ export async function selectMemoriesForInjection(
     const newMemories = relevant.filter(m => !existingIds.has(m.id));
     memories.push(...newMemories.slice(0, remainingSlots));
     
-    log(`Dynamic selection: ${memories.length} total (${globalHigh.length} global + ${projectHigh.length} project + ${newMemories.length} context-relevant)`);
+    log(`Dynamic selection: ${memories.length} total (${globalHigh.length} global + ${projectHigh.length} project + ${newMemories.length} context-relevant) [max=${maxMemories}]`);
   } else if (remainingSlots > 0) {
     // Fallback: Fill with highest strength from either scope
     const remaining = allMemories
@@ -603,10 +617,10 @@ export async function selectMemoriesForInjection(
       .slice(0, remainingSlots);
     memories.push(...remaining);
     
-    log(`Fallback selection: ${memories.length} total (strength-based)`);
+    log(`Fallback selection: ${memories.length} total (strength-based) [max=${maxMemories}]`);
   }
   
-  return memories.slice(0, MAX_TOTAL); // Hard limit
+  return memories.slice(0, maxMemories); // Hard limit at user-configured max
 }
 ```
 
