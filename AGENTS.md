@@ -490,6 +490,15 @@ Il toast appare **a tutte le sessioni** (nuove e continuate), 2s dopo l'avvio di
 | "ho imparato come cancellare file" | **ALLOW** - no keyword "memoria" |
 | "ricordati di eliminare i log" | **ALLOW** - override esplicito |
 
+**Edge Cases:**
+| Input | Risultato | Spiegazione |
+|-------|-----------|-------------|
+| "I want to delete this memory" | **BLOCK** | Meta-command diretto |
+| "delete the memory about X" | **BLOCK** | Meta-command diretto |
+| "ricordati di cancellare questa memoria" | **ALLOW** | Override esplicito vince |
+| "ho capito come si cancellano le memorie" | **ALLOW** | Apprendimento, non comando |
+| "cancelliamo tutto" | **ALLOW** | Manca keyword "memoria" |
+
 **File:** `src/memory/negative-patterns.ts`
 - `MEMORY_COMMAND_PATTERNS` - Blocca comandi tipo "delete this memory"
 - `MEMORY_COMMAND_OVERRIDES` - Permette "remember to delete..."
