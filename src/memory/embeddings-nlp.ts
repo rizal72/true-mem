@@ -217,7 +217,34 @@ export class EmbeddingService {
 
   cleanup(): void {
     if (this.worker) {
-      this.worker.terminate();
+      // FIX CRITICAL: Graceful shutdown via message instead of immediate terminate()
+      // This prevents Bun panic when worker is executing native ONNX code
+      try {
+        // Send shutdown message to worker
+        this.worker.postMessage({ type: 'shutdown' });
+        
+        // Wait for worker to exit gracefully (max 2 seconds)
+        const startTime = Date.now();
+        while (Date.now() - startTime < 2000) {
+          // Check if worker has exited (worker will be null after it exits)
+          if (!this.worker) break;
+          // Small delay to allow worker cleanup
+          const endTime = Date.now() + 50;
+          while (Date.now() < endTime) {} // Busy wait 50ms
+        }
+        
+        // If worker still exists, force terminate
+        if (this.worker) {
+          log('Worker did not exit gracefully, forcing terminate');
+          this.worker.terminate();
+        }
+      } catch (err) {
+        log('Error during worker cleanup:', err);
+        // Force terminate on error
+        try {
+          this.worker?.terminate();
+        } catch {}
+      }
       this.worker = null;
     }
     this.enabled = false;

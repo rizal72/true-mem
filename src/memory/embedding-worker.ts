@@ -63,6 +63,12 @@ parentPort?.on('message', async (msg) => {
       parentPort?.postMessage({ type: 'error', error: String(error) });
     }
   }
+  
+  // FIX CRITICAL: Handle graceful shutdown message from parent
+  if (msg.type === 'shutdown') {
+    log('Received shutdown message, cleaning up...');
+    await gracefulShutdown();
+  }
 });
 
 // Graceful shutdown
