@@ -1,10 +1,9 @@
 /**
- * Worker thread for embedding computation
- * Isolates Transformers.js from main thread
+ * Standalone Node.js worker for embedding computation
+ * Runs as child process (not worker thread) to avoid Bun/ONNX crashes
  * Uses eval('import()') hack to avoid bun bundling issues
  */
 
-import { parentPort, workerData } from 'worker_threads';
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -46,26 +45,28 @@ let extractor: any = null;
 let memoryCheckInterval: ReturnType<typeof setInterval> | null = null; // FIX P1: Track interval
 
 async function initialize() {
+  const model = process.env.WORKER_MODEL || 'Xenova/all-MiniLM-L6-v2';
+  
   try {
     log('Loading Transformers.js...');
     await loadTransformers();
-    log('Transformers.js loaded, initializing model:', workerData.model);
+    log('Transformers.js loaded, initializing model:', model);
     
-    extractor = await pipeline('feature-extraction', workerData.model, {
+    extractor = await pipeline('feature-extraction', model, {
       dtype: 'q8', // Quantized for memory efficiency
       device: 'cpu', // CPU only - avoid WebGPU crashes
     });
     
     log('Model loaded successfully');
-    parentPort?.postMessage({ type: 'ready' });
+    process.send?.({ type: 'ready' });
   } catch (error: any) {
     log('Failed to initialize model:', error?.message || error);
-    parentPort?.postMessage({ type: 'error', error: String(error?.message || error) });
+    process.send?.({ type: 'error', error: String(error?.message || error) });
     process.exit(1);
   }
 }
 
-parentPort?.on('message', async (msg) => {
+process.on('message', async (msg: any) => {
   if (msg.type === 'embed') {
     try {
       if (!extractor) {
@@ -76,9 +77,9 @@ parentPort?.on('message', async (msg) => {
       
       // Convert to regular arrays for message passing, include requestId for correlation
       const embeddingsArray = Array.from(embeddings).map((e: any) => Array.from(e));
-      parentPort?.postMessage({ type: 'embeddings', requestId: msg.requestId, embeddings: embeddingsArray });
+      process.send?.({ type: 'embeddings', requestId: msg.requestId, embeddings: embeddingsArray });
     } catch (error) {
-      parentPort?.postMessage({ type: 'error', requestId: msg.requestId, error: String(error) });
+      process.send?.({ type: 'error', requestId: msg.requestId, error: String(error) });
     }
   }
   
@@ -106,7 +107,7 @@ const gracefulShutdown = async () => {
     }
   }
   
-  parentPort?.postMessage({ type: 'shutdown' });
+  process.send?.({ type: 'shutdown' });
   process.exit(0);
 };
 
@@ -118,7 +119,7 @@ process.on('SIGINT', gracefulShutdown);
 memoryCheckInterval = setInterval(() => { // FIX P1: Save interval reference
   const usage = process.memoryUsage();
   if (usage.heapUsed > 500 * 1024 * 1024) { // 500MB cap
-    parentPort?.postMessage({ type: 'error', error: 'Memory limit exceeded' });
+    process.send?.({ type: 'error', error: 'Memory limit exceeded' });
     process.exit(1);
   }
 }, 5000); // Check every 5 seconds

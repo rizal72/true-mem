@@ -1,14 +1,23 @@
 /**
  * True-Mem Hybrid NLP Embeddings Service
- * Uses Transformers.js v4 with worker thread isolation
+ * Uses Transformers.js v4 with Node.js child process isolation
  * Graceful degradation to Jaccard similarity
  */
 
-import { Worker } from 'worker_threads';
+import { spawn, ChildProcess } from 'child_process';
 import { log } from '../logger.js';
 import * as path from 'path';
 import * as url from 'url';
 import * as fs from 'fs';
+
+// Worker message types
+interface WorkerMessage {
+  type: 'embeddings' | 'error' | 'ready' | 'log' | 'shutdown';
+  requestId?: string;
+  embeddings?: number[][];
+  error?: string;
+  message?: string;
+}
 
 // Resolve worker path from package root (bundler-agnostic)
 function resolveWorkerPath(): string {
@@ -40,7 +49,7 @@ function resolveWorkerPath(): string {
 
 export class EmbeddingService {
   private static instance: EmbeddingService;
-  private worker: Worker | null = null;
+  private worker: ChildProcess | null = null;
   private enabled = false;
   private failureCount = 0;
   private lastFailure = 0;
@@ -78,63 +87,65 @@ export class EmbeddingService {
     }
 
     try {
-      // FIX P0: Create promise BEFORE spawning worker (race condition)
+      // Create promise BEFORE spawning worker (race condition)
       this.readyPromise = new Promise((resolve) => {
         this.readyResolve = resolve;
       });
 
-      // Create worker thread for embeddings
-      // FIX: Resolve from package root (bundler-agnostic)
+      // Create Node.js child process for embeddings
       const workerPath = resolveWorkerPath();
       
-      log('Spawning worker at path:', workerPath);
+      log('Spawning Node.js worker at path:', workerPath);
       
-      this.worker = new Worker(workerPath, {
-        workerData: { model: 'Xenova/all-MiniLM-L6-v2' }
+      // Use Node.js instead of Bun Worker for ONNX stability
+      this.worker = spawn('node', [workerPath], {
+        stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+        env: {
+          ...process.env,
+          WORKER_MODEL: 'Xenova/all-MiniLM-L6-v2'
+        }
       });
-      
-      // FIX: Remove max listeners limit to prevent warnings with many parallel calls
-      this.worker.setMaxListeners(0);
 
-      // Single message listener for ALL responses (fixes MaxListenersExceededWarning)
-      this.worker.on('message', (msg) => {
-        if (msg.type === 'embeddings' && msg.requestId) {
+      // Handle messages from worker via IPC
+      this.worker.on('message', (msg: any) => {
+        const m = msg as WorkerMessage;
+        
+        if (m.type === 'embeddings' && m.requestId) {
           // Handle embedding response
-          const pending = this.pendingRequests.get(msg.requestId);
+          const pending = this.pendingRequests.get(m.requestId);
           if (pending) {
             clearTimeout(pending.timeout);
-            this.pendingRequests.delete(msg.requestId);
-            pending.resolve(msg.embeddings);
+            this.pendingRequests.delete(m.requestId);
+            pending.resolve(m.embeddings!);
           }
-        } else if (msg.type === 'error' && msg.requestId) {
+        } else if (m.type === 'error' && m.requestId) {
           // Handle error response for specific request
-          const pending = this.pendingRequests.get(msg.requestId);
+          const pending = this.pendingRequests.get(m.requestId);
           if (pending) {
             clearTimeout(pending.timeout);
-            this.pendingRequests.delete(msg.requestId);
+            this.pendingRequests.delete(m.requestId);
             this.recordFailure();
-            pending.reject(new Error(msg.error));
+            pending.reject(new Error(m.error));
           }
-        } else if (msg.type === 'ready') {
+        } else if (m.type === 'ready') {
           log('Embedding worker ready');
           this.ready = true;
           if (this.readyResolve) {
             this.readyResolve(true);
           }
-        } else if (msg.type === 'error' && !msg.requestId) {
+        } else if (m.type === 'error' && !m.requestId) {
           // Handle worker-level errors (not specific to a request)
-          log('Embedding worker error:', msg.error);
+          log('Embedding worker error:', m.error);
           this.recordFailure();
-        } else if (msg.type === 'log') {
+        } else if (m.type === 'log') {
           // Forward worker logs to file (avoid TUI pollution)
-          log(msg.message);
+          log(m.message || '');
         }
       });
 
       // Handle worker errors
       this.worker.on('error', (err: any) => {
         log('Embedding worker error:', err?.message || err?.toString() || String(err));
-        log('Error stack:', err?.stack);
         this.recordFailure();
         this.cleanup();
       });
@@ -146,6 +157,11 @@ export class EmbeddingService {
           this.recordFailure();
         }
         this.ready = false;
+      });
+
+      // Handle stderr for debugging
+      this.worker.stderr?.on('data', (data) => {
+        log('Worker stderr:', data.toString());
       });
 
       // Wait for worker to be ready (max 30 seconds)
@@ -193,8 +209,8 @@ export class EmbeddingService {
         // Store pending request with resolve/reject callbacks
         this.pendingRequests.set(requestId, { resolve, reject, timeout });
 
-        // Send request with requestId for correlation
-        this.worker!.postMessage({ type: 'embed', requestId, texts });
+        // Send request with requestId for correlation via IPC
+        this.worker!.send({ type: 'embed', requestId, texts });
       });
     } catch (error) {
       log('Embedding computation failed:', error);
@@ -240,32 +256,29 @@ export class EmbeddingService {
     this.pendingRequests.clear();
 
     if (this.worker) {
-      // FIX CRITICAL: Graceful shutdown via message instead of immediate terminate()
-      // This prevents Bun panic when worker is executing native ONNX code
+      // Send shutdown message to worker
       try {
-        // Send shutdown message to worker
-        this.worker.postMessage({ type: 'shutdown' });
+        this.worker.send({ type: 'shutdown' });
         
         // Wait for worker to exit gracefully (max 2 seconds)
         const startTime = Date.now();
         while (Date.now() - startTime < 2000) {
-          // Check if worker has exited (worker will be null after it exits)
-          if (!this.worker) break;
+          if (this.worker.killed) break;
           // Small delay to allow worker cleanup
           const endTime = Date.now() + 50;
           while (Date.now() < endTime) {} // Busy wait 50ms
         }
         
-        // If worker still exists, force terminate
-        if (this.worker) {
-          log('Worker did not exit gracefully, forcing terminate');
-          this.worker.terminate();
+        // If worker still exists, force kill
+        if (!this.worker.killed) {
+          log('Worker did not exit gracefully, forcing kill');
+          this.worker.kill('SIGTERM');
         }
       } catch (err) {
         log('Error during worker cleanup:', err);
-        // Force terminate on error
+        // Force kill on error
         try {
-          this.worker?.terminate();
+          this.worker?.kill('SIGKILL');
         } catch {}
       }
       this.worker = null;

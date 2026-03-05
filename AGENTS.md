@@ -53,7 +53,7 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 6. **Env check fix:** `TRUE_MEM_EMBEDDINGS` deve essere esplicitamente `'1'` per attivare embeddings
 
 **Problemi Noti (develop branch):**
-- ⚠️ **Bun panic alla chiusura di OpenCode** - Crash C++ exception visibile nel terminale quando embeddings attive
+- ✅ **Bun panic risolto** - Implementata soluzione Node.js Worker (ONNX stabile)
 - ⚠️ Embeddings usate solo in `tool.execute.before`, non nel retrieval globale delle memorie
 - ⚠️ Non testato in produzione
 
@@ -91,8 +91,24 @@ Instabilità fondamentale tra **Bun v1.3.10** e **Transformers.js v4** - il cras
 
 **Decisione:**
 - **DEFAULT:** `TRUE_MEM_EMBEDDINGS=0` (Jaccard-only, stabile)
-- **OPZIONALE:** `TRUE_MEM_EMBEDDINGS=1` (sperimentale, rischio crash)
+- **OPZIONALE:** `TRUE_MEM_EMBEDDINGS=1` (usa Node.js worker, stabile)
 - **NON BLOCCANTE** per release - embeddings sono feature opzionale
+
+**Soluzione Implementata (Node.js Worker):**
+Per risolvere il Bun panic crash, abbiamo implementato una soluzione ibrida:
+- **Main thread:** Continua a usare Bun (veloce, bundle efficiente)
+- **Worker embeddings:** Usa Node.js child process (ONNX Runtime stabile)
+- **Comunicazione:** IPC via `child_process.spawn()` con stesso formato messaggi
+
+**Vantaggi:**
+- ✅ Stabile - Node.js ha ONNX Runtime maturo e testato
+- ✅ Minimi cambiamenti architetturali
+- ✅ Mantiene Bun per il plugin principale
+- ✅ Transformers.js v4 funziona correttamente in Node.js
+
+**File modificati:**
+- `src/memory/embeddings-nlp.ts` - Usa `spawn('node', ...)` invece di `Worker`
+- `src/memory/embedding-worker.ts` - Script Node.js standalone (no worker_threads)
 
 **Riferimento:** Questo problema è documentato anche in commit history e issue tracker Bun.
 
