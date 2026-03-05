@@ -75,16 +75,17 @@ export class EmbeddingService {
       });
 
       // Handle worker errors
-      this.worker.on('error', (err) => {
-        log('Embedding worker error:', err);
+      this.worker.on('error', (err: any) => {
+        log('Embedding worker error:', err?.message || err?.toString() || String(err));
+        log('Error stack:', err?.stack);
         this.recordFailure();
         this.cleanup();
       });
 
       // Handle worker exit
-      this.worker.on('exit', (code) => {
+      this.worker.on('exit', (code, signal) => {
+        log(`Embedding worker exited with code ${code}, signal: ${signal}`);
         if (code !== 0) {
-          log(`Embedding worker exited with code ${code}`);
           this.recordFailure();
         }
         this.ready = false;
