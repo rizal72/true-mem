@@ -21,6 +21,7 @@ import type {
 import { DEFAULT_CONFIG } from '../config.js';
 import { createDatabase, type SqliteDatabase } from './sqlite-adapter.js';
 import { handleReconsolidation, isRelevant } from '../memory/reconsolidate.js';
+import { getSimilarity } from '../memory/embeddings.js';
 import { log } from '../logger.js';
 
 /**
@@ -665,12 +666,13 @@ export class MemoryDatabase {
     const rows = this.db.prepare(query).all(...params) as any[];
     const memories = rows.map(this.rowToMemoryUnit.bind(this));
 
-    // Calculate Jaccard similarity for each memory
-    const results = memories
-      .map((memory) => {
-        const similarity = this.jaccardSimilarity(queryText, memory.summary);
+    // Calculate hybrid similarity (Jaccard + Embeddings) for each memory
+    const results = await Promise.all(
+      memories.map(async (memory) => {
+        const similarity = await getSimilarity(queryText, memory.summary);
         return { memory, similarity };
-      });
+      })
+    );
 
     // Sort by similarity (descending) and return top-k
     results.sort((a, b) => b.similarity - a.similarity);
