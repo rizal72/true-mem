@@ -173,11 +173,32 @@ function extractQueryContext(messages: MessageContainer[], windowSize: number = 
 - Prevents token bloat in similarity calculations
 - Captures most recent, relevant context
 
-### 3.2 Smart Memory Selection
+### 3.2 Smart Memory Selection (Dynamic Strategy)
 
-**Current:** Fixed 20 memories by strength
+**Current:** Fixed 20 memories by strength (no scope distinction, no relevance)
 
-**Proposed:** Tiered approach with dynamic limits
+**Proposed:** Dynamic allocation with scope quotas and classification priority
+
+**Strategy Overview:**
+```
+Total Limit: 20 memories (maintains current token cost)
+
+Scope Quotas (minimum guarantees):
+├─ Min 6 GLOBAL (preferences, constraints, learning, procedural)
+├─ Min 6 PROJECT (decisions, semantic, episodic)
+└─ Max 8 flexible (context-relevant from either scope)
+
+Classification Priority (within each scope):
+Tier 0: constraint (always include, no limit - critical rules)
+Tier 1: preference, decision (high priority)
+Tier 2: learning, procedural (medium priority)
+Tier 3: semantic, episodic (low priority, context-dependent)
+```
+
+**Why dynamic allocation:**
+- New user (3 memories): All included, no waste
+- Power user (15 high-strength): 6 guaranteed + 14 compete for slots
+- Prevents GLOBAL preferences from drowning PROJECT context (and vice versa)
 
 ```typescript
 async function selectMemoriesForInjection(
@@ -186,39 +207,72 @@ async function selectMemoriesForInjection(
   queryContext: string,
   embeddingsEnabled: boolean
 ): Promise<MemoryUnit[]> {
+  const MAX_TOTAL = 20;
+  const MIN_GLOBAL = 6;
+  const MIN_PROJECT = 6;
+  const MAX_FLEXIBLE = 8;
+  
   const memories: MemoryUnit[] = [];
   
-  // Tier 1: High-strength memories (always include, regardless of relevance)
-  // These are user preferences, constraints, critical decisions
-  const highStrength = db.getMemoriesByScope(worktree, 100)
-    .filter(m => m.strength >= 0.8);
-  memories.push(...highStrength.slice(0, 5)); // Max 5 high-strength
+  // Step 1: Get all memories for current scope (GLOBAL + current PROJECT)
+  const allMemories = db.getMemoriesByScope(worktree, 100);
+  const globalMemories = allMemories.filter(m => m.project_scope === null);
+  const projectMemories = allMemories.filter(m => m.project_scope !== null);
   
-  // Tier 2: Context-relevant memories (if embeddings available)
-  if (embeddingsEnabled && queryContext.trim().length > 0) {
-    const relevant = await db.vectorSearch(queryContext, worktree, 15);
+  // Step 2: Tier 0 - Include ALL constraints (critical rules, no limit)
+  const constraints = allMemories.filter(m => m.classification === 'constraint');
+  memories.push(...constraints);
+  
+  // Step 3: Scope quotas - Minimum guarantees
+  // GLOBAL: Top by strength (preference, learning, procedural)
+  const globalHigh = globalMemories
+    .filter(m => !memories.find(existing => existing.id === m.id))
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, MIN_GLOBAL);
+  memories.push(...globalHigh);
+  
+  // PROJECT: Top by strength (decision, semantic)
+  const projectHigh = projectMemories
+    .filter(m => !memories.find(existing => existing.id === m.id))
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, MIN_PROJECT);
+  memories.push(...projectHigh);
+  
+  // Step 4: Flexible slots - Context-relevant selection
+  const remainingSlots = MAX_TOTAL - memories.length;
+  
+  if (remainingSlots > 0 && embeddingsEnabled && queryContext.trim().length > 0) {
+    // Use vectorSearch for semantic relevance
+    const relevant = await db.vectorSearch(queryContext, worktree, MAX_FLEXIBLE);
     
-    // Deduplicate (avoid duplicates from Tier 1)
+    // Deduplicate and fill remaining slots
     const existingIds = new Set(memories.map(m => m.id));
     const newMemories = relevant.filter(m => !existingIds.has(m.id));
-    memories.push(...newMemories.slice(0, 15)); // Max 15 relevant (total 20)
-  } else {
-    // Fallback: Medium-strength memories
-    const mediumStrength = db.getMemoriesByScope(worktree, 100)
-      .filter(m => m.strength >= 0.5 && m.strength < 0.8);
-    memories.push(...mediumStrength.slice(0, 15)); // Max 15 medium (total 20)
+    memories.push(...newMemories.slice(0, remainingSlots));
+    
+    log(`Dynamic selection: ${memories.length} total (${globalHigh.length} global + ${projectHigh.length} project + ${newMemories.length} context-relevant)`);
+  } else if (remainingSlots > 0) {
+    // Fallback: Fill with highest strength from either scope
+    const remaining = allMemories
+      .filter(m => !memories.find(existing => existing.id === m.id))
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, remainingSlots);
+    memories.push(...remaining);
+    
+    log(`Fallback selection: ${memories.length} total (strength-based)`);
   }
   
-  return memories;
+  return memories.slice(0, MAX_TOTAL); // Hard limit
 }
 ```
 
 **Benefits:**
-- High-strength memories (preferences, constraints) always included (max 5)
-- Context-relevant memories prioritized when embeddings available (max 15)
-- Total: Always 20 memories, but selected by relevance, not just strength
-- Token count remains stable (20 memories), but quality improves significantly
-- Graceful fallback when embeddings disabled
+- **Scope protection**: GLOBAL preferences can't drown PROJECT context (min 6 each)
+- **Classification priority**: Constraints always included, episodic lowest priority
+- **Dynamic allocation**: Adapts to user's actual memory distribution
+- **Quality over quantity**: 20 highly relevant > 30 random memories
+- **Token stable**: Always 20 memories, cost predictable
+- **Graceful degradation**: Works with or without embeddings
 
 ### 3.3 Integration Points
 
@@ -410,11 +464,19 @@ async function extractQueryContextFromInput(
 // src/adapters/opencode/injection.ts (new function)
 
 /**
- * Select memories for injection using tiered approach
- * Tier 1: High-strength (always include, max 5)
- * Tier 2: Context-relevant (if embeddings available, max 15)
- * Tier 3: Medium-strength (fallback, max 15)
- * Total: Always 20 memories (maintains current limit)
+ * Select memories for injection using dynamic allocation with scope quotas
+ * 
+ * Strategy:
+ * - Min 6 GLOBAL (preferences, constraints, learning, procedural)
+ * - Min 6 PROJECT (decisions, semantic, episodic)
+ * - Max 8 flexible (context-relevant from either scope)
+ * - Total: 20 memories (maintains current token cost)
+ * 
+ * Classification Priority:
+ * Tier 0: constraint (always include, no limit - critical rules)
+ * Tier 1: preference, decision (high priority, by strength)
+ * Tier 2: learning, procedural (medium priority, by strength)
+ * Tier 3: semantic, episodic (low priority, by query relevance)
  */
 export async function selectMemoriesForInjection(
   db: MemoryDatabase,
@@ -423,46 +485,60 @@ export async function selectMemoriesForInjection(
   embeddingsEnabled: boolean
 ): Promise<MemoryUnit[]> {
   const memories: MemoryUnit[] = [];
-  const MAX_HIGH_STRENGTH = 5;
-  const MAX_RELEVANT = 15;  // Tier 2: context-relevant
-  const MAX_MEDIUM_STRENGTH = 15;  // Tier 3: fallback
-  const MAX_TOTAL = 20;  // Maintain current limit
+  const MAX_TOTAL = 20;
+  const MIN_GLOBAL = 6;
+  const MIN_PROJECT = 6;
+  const MAX_FLEXIBLE = 8;
   
-  // Tier 1: High-strength memories (always include)
+  // Step 1: Get all memories for current scope (GLOBAL + current PROJECT)
   const allMemories = db.getMemoriesByScope(worktree, 100);
-  const highStrength = allMemories.filter(m => m.strength >= 0.8);
-  memories.push(...highStrength.slice(0, MAX_HIGH_STRENGTH));
+  const globalMemories = allMemories.filter(m => m.project_scope === null);
+  const projectMemories = allMemories.filter(m => m.project_scope !== null);
   
-  // Tier 2: Context-relevant (if embeddings enabled and context available)
-  if (embeddingsEnabled && queryContext.trim().length > 0) {
-    try {
-      const relevant = await db.vectorSearch(queryContext, worktree, MAX_RELEVANT);
-      
-      // Deduplicate
-      const existingIds = new Set(memories.map(m => m.id));
-      const newMemories = relevant.filter(m => !existingIds.has(m.id));
-      const remainingSlots = MAX_TOTAL - memories.length;
-      memories.push(...newMemories.slice(0, remainingSlots));
-      
-      log(`Smart selection: ${highStrength.length} high-strength + ${newMemories.length} relevant (total: ${memories.length})`);
-    } catch (error) {
-      log('Vector search failed, falling back to medium-strength:', error);
-      // Fall through to Tier 3
-    }
-  }
+  // Step 2: Tier 0 - Include ALL constraints (critical rules, no limit)
+  const constraints = allMemories.filter(m => m.classification === 'constraint');
+  memories.push(...constraints);
   
-  // Tier 3: Medium-strength (fallback or when embeddings disabled)
-  if (memories.length < MAX_TOTAL) {
-    const mediumStrength = allMemories.filter(m => 
-      m.strength >= 0.5 && m.strength < 0.8
-    );
+  // Step 3: Scope quotas - Minimum guarantees
+  // GLOBAL: Top by strength (preference, learning, procedural)
+  const globalHigh = globalMemories
+    .filter(m => !memories.find(existing => existing.id === m.id))
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, MIN_GLOBAL);
+  memories.push(...globalHigh);
+  
+  // PROJECT: Top by strength (decision, semantic)
+  const projectHigh = projectMemories
+    .filter(m => !memories.find(existing => existing.id === m.id))
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, MIN_PROJECT);
+  memories.push(...projectHigh);
+  
+  // Step 4: Flexible slots - Context-relevant selection
+  const remainingSlots = MAX_TOTAL - memories.length;
+  
+  if (remainingSlots > 0 && embeddingsEnabled && queryContext.trim().length > 0) {
+    // Use vectorSearch for semantic relevance
+    const relevant = await db.vectorSearch(queryContext, worktree, MAX_FLEXIBLE);
+    
+    // Deduplicate and fill remaining slots
     const existingIds = new Set(memories.map(m => m.id));
-    const newMemories = mediumStrength.filter(m => !existingIds.has(m.id));
-    const remainingSlots = MAX_TOTAL - memories.length;
+    const newMemories = relevant.filter(m => !existingIds.has(m.id));
     memories.push(...newMemories.slice(0, remainingSlots));
+    
+    log(`Dynamic selection: ${memories.length} total (${globalHigh.length} global + ${projectHigh.length} project + ${newMemories.length} context-relevant)`);
+  } else if (remainingSlots > 0) {
+    // Fallback: Fill with highest strength from either scope
+    const remaining = allMemories
+      .filter(m => !memories.find(existing => existing.id === m.id))
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, remainingSlots);
+    memories.push(...remaining);
+    
+    log(`Fallback selection: ${memories.length} total (strength-based)`);
   }
   
-  return memories;
+  return memories.slice(0, MAX_TOTAL); // Hard limit
 }
 ```
 
@@ -490,12 +566,15 @@ See Section 3.3 for complete implementation.
 
 | Scenario | Expected Behavior |
 |----------|-------------------|
-| Embeddings enabled, context available | Tier 1 (5) + Tier 2 (15) = 20 relevant memories |
-| Embeddings enabled, no context | Tier 1 (5) + Tier 3 (15) = 20 medium-strength |
-| Embeddings disabled, context available | Tier 1 (5) + Tier 3 (15) = 20 medium-strength |
-| Embeddings disabled, no context | Tier 1 (5) + Tier 3 (15) = 20 medium-strength |
-| Vector search fails | Graceful fallback to Tier 3 (15) + Tier 1 (5) = 20 |
+| Embeddings enabled, context available | Min 6 GLOBAL + Min 6 PROJECT + up to 8 context-relevant = 20 |
+| Embeddings enabled, no context | Min 6 GLOBAL + Min 6 PROJECT + 8 highest strength = 20 |
+| Embeddings disabled, context available | Min 6 GLOBAL + Min 6 PROJECT + 8 highest strength = 20 |
+| Embeddings disabled, no context | Min 6 GLOBAL + Min 6 PROJECT + 8 highest strength = 20 |
+| Vector search fails | Graceful fallback to strength-based selection |
 | Empty database | Empty array, no errors |
+| Many constraints (>6) | All constraints included (may exceed 20 temporarily) |
+| Few GLOBAL memories (2) | Use 2 GLOBAL + 18 PROJECT (respects availability) |
+| Few PROJECT memories (3) | Use 6 GLOBAL + 3 PROJECT + 11 flexible (respects availability) |
 
 **Test commands:**
 ```bash

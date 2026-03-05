@@ -507,6 +507,108 @@ Il toast appare **a tutte le sessioni** (nuove e continuate), 2s dopo l'avvio di
 
 ---
 
+## Memory Injection - Come Funziona
+
+### Quando vengono iniettate le memorie?
+
+**Risposta: OGNI VOLTA che c'è una nuova richiesta**, non solo all'inizio della sessione.
+
+**Hook utilizzato:** `experimental.chat.system.transform`
+- Chiamato da OpenCode **prima di ogni richiesta al modello**
+- Esegue injection in tempo reale nel system prompt
+
+**Flusso completo:**
+```
+Utente scrive messaggio → OpenCode prepara richiesta → 
+Hook transform eseguito → Memorie iniettate nel system → 
+Richiesta inviata al modello con memorie incluse
+```
+
+**Perché vedi memorie diverse in `list-memories`:**
+1. Durante la conversazione, il plugin estrae nuove memorie (quando la sessione diventa idle)
+2. Le memorie vengono salvate nel database
+3. Alla richiesta successiva, `experimental.chat.system.transform` le inietta
+4. `list-memories` mostra le memorie **attualmente iniettate** nell'ultimo prompt
+
+**Codice rilevante:**
+```typescript
+// src/adapters/opencode/index.ts:287-297
+'experimental.chat.system.transform': async (input, output) => {
+  log('experimental.chat.system.transform: Injecting all relevant memories');
+  
+  // Recupera TUTTE le memorie rilevanti (max 20)
+  const allMemories = injectionState.db.getMemoriesByScope(state.worktree, 20);
+  
+  // Salva nello stato globale per "list memories"
+  setLastInjectedMemories(allMemories);
+  
+  // Inietta nel system prompt
+  if (allMemories.length > 0) {
+    const wrappedContext = wrapMemories(allMemories, state.worktree, 'global');
+    // ... append to output.system
+  }
+}
+```
+
+**Metodo di selezione attuale:**
+- `getMemoriesByScope(worktree, 20)` ordina per **strength DESC**
+- **NON** per rilevanza semantica al contesto
+- Prende le 20 memorie con strength più alta, indipendentemente dal contenuto della richiesta
+
+**Nota su embeddings:**
+- Esiste `vectorSearch(queryText, worktree, limit)` che usa hybrid similarity
+- **NON è usato** per l'injection nel transform hook
+- Richiederebbe estrazione del contesto dalla conversazione
+- Vedi `docs/embeddings-implementation-plan.md` per piano di implementazione
+
+---
+
+## Strategia di Selezione Memorie (Proposta)
+
+**Problema attuale:**
+Le 20 memorie vengono selezionate solo per **strength** (forza), ignorando:
+- Rilevanza al contesto della conversazione
+- Bilanciamento tra GLOBAL e PROJECT scope
+- Priorità delle diverse classificazioni
+
+**Proposta: Allocazione Dinamica con Scope Quotas**
+
+```
+Limite totale: 20 memorie
+
+Scope Quotas (minimum guarantees):
+├─ Min 6 GLOBAL (preferences, constraints, learning, procedural)
+├─ Min 6 PROJECT (decisions, semantic, episodic)
+└─ Max 8 flessibili (context-relevant da entrambi gli scope)
+
+Classification Priority:
+Tier 0: constraint (sempre inclusi, no limite - regole critiche)
+Tier 1: preference, decision (alta priorità)
+Tier 2: learning, procedural (media priorità)
+Tier 3: semantic, episodic (bassa priorità, dipende dal contesto)
+```
+
+**Vantaggi:**
+- **Scope protection**: GLOBAL preferences non annegano PROJECT context (e viceversa)
+- **Adattivo**: Funziona sia per nuovi utenti (poche memorie) che power user (tante)
+- **Qualità**: 20 memorie rilevanti > 30 memorie casuali
+- **Token stable**: Sempre 20 memorie, costo prevedibile
+
+**Esempi:**
+
+| Scenario | Risultato |
+|----------|-----------|
+| Nuovo utente (3 memorie) | Tutte incluse, nessuno spreco |
+| Power user (15 GLOBAL + 30 PROJECT) | 6 GLOBAL garantiti + 6 PROJECT garantiti + 8 flessibili |
+| Query specifica ("fix database") | Memorie rilevanti al database prioritarie nei 8 slot flessibili |
+
+**Implementazione:**
+- Vedi `docs/embeddings-implementation-plan.md` per piano dettagliato
+- Feature flag: `TRUE_MEM_EMBEDDINGS=1` per abilitare rilevanza semantica
+- Fallback: Se embeddings disabilitati, usa strength-based selection
+
+---
+
 ## Best Practice
 
 - Background tasks: attendere notifica automatica, no polling
