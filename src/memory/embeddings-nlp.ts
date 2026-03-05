@@ -62,9 +62,9 @@ export class EmbeddingService {
   }
 
   async initialize(): Promise<boolean> {
-    // Check feature flag
-    if (!process.env.TRUE_MEM_EMBEDDINGS) {
-      log('NLP embeddings disabled (TRUE_MEM_EMBEDDINGS not set)');
+    // Check feature flag - must be explicitly set to '1' to enable
+    if (process.env.TRUE_MEM_EMBEDDINGS !== '1') {
+      log('NLP embeddings disabled (TRUE_MEM_EMBEDDINGS not set to 1)');
       return false;
     }
 
