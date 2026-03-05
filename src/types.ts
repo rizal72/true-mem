@@ -385,6 +385,12 @@ export interface OpenCodeConfig {
   messageImportanceThreshold: number;
 }
 
+export interface ScopeQuotas {
+  minGlobal: number;
+  minProject: number;
+  maxFlexible: number;
+}
+
 export interface PsychMemConfig {
   agentType: AgentType;
   dbPath: string;
@@ -399,6 +405,13 @@ export interface PsychMemConfig {
   
   defaultRetrievalLimit: number;
   maxContextTokens: number;
+  
+  // Memory injection limits
+  maxMemories: number;
+  maxTokensForMemories: number;
+  
+  // Scope quotas (computed getter)
+  scopeQuotas: ScopeQuotas;
   
   autoPromoteToLtm: MemoryClassification[];
   

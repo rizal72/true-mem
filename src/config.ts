@@ -2,7 +2,31 @@
  * True-Mem Configuration
  */
 
+import { log } from './logger.js';
 import type { PsychMemConfig, ScoringWeights, OpenCodeConfig, SweepConfig } from './types.js';
+
+/**
+ * Get max memories from environment variable with validation
+ */
+function getMaxMemories(): number {
+  const envValue = process.env.TRUE_MEM_MAX_MEMORIES;
+  if (!envValue) return 20; // Default
+
+  const parsed = parseInt(envValue, 10);
+  if (isNaN(parsed) || parsed < 1) {
+    log(`Invalid TRUE_MEM_MAX_MEMORIES: ${envValue}, using default 20`);
+    return 20;
+  }
+
+  if (parsed < 10) {
+    log(`Warning: TRUE_MEM_MAX_MEMORIES=${parsed} may reduce context quality`);
+  }
+  if (parsed > 50) {
+    log(`Warning: TRUE_MEM_MAX_MEMORIES=${parsed} may cause token bloat`);
+  }
+
+  return parsed;
+}
 
 // Default sweep config
 export const DEFAULT_SWEEP_CONFIG: SweepConfig = {
@@ -56,6 +80,19 @@ export const DEFAULT_CONFIG: PsychMemConfig = {
   defaultRetrievalLimit: 20,
   maxContextTokens: 4000,
 
+  // Max memories configuration
+  maxMemories: getMaxMemories(),
+  maxTokensForMemories: 4000,
+
+  get scopeQuotas() {
+    const max = this.maxMemories;
+    return {
+      minGlobal: Math.floor(max * 0.3),
+      minProject: Math.floor(max * 0.3),
+      maxFlexible: max - Math.floor(max * 0.3) - Math.floor(max * 0.3),
+    };
+  },
+
   // Auto-promote to LTM
   autoPromoteToLtm: ['learning', 'decision'],
 
@@ -72,4 +109,10 @@ export const DEFAULT_CONFIG: PsychMemConfig = {
   // True-Mem improvement: decay only episodic
   applyDecayOnlyToEpisodic: true,
   decayThreshold: 0.1,
+};
+
+// Constraint configuration
+export const CONSTRAINT_CONFIG = {
+  maxConstraints: 10,
+  alwaysInclude: true,
 };
