@@ -517,14 +517,17 @@ async function processSessionIdle(
             const userLevelClassifications = ['constraint', 'preference', 'learning', 'procedural'];
             const isExplicitIntent = confidence >= 0.85;
             const hasGlobalKeyword = hasGlobalScopeKeyword(text);
-            const isUserLevel = userLevelClassifications.includes(classification) || (isExplicitIntent && hasGlobalKeyword);
+            // FIX: Simplified isUserLevel logic - only check classification type
+            // Global keyword check happens inside shouldBeProjectScope()
+            const isUserLevel = userLevelClassifications.includes(classification);
             
             // NEW: Contextual scope detection for user-level memories
             let scope: string | null;
             if (isUserLevel) {
               // Build conversation context from recent messages
+              // FIX: Increased context window from 10 to 20 messages for better detection
               const recentMessages = roleLines
-                .slice(-10) // Last 10 messages for context
+                .slice(-20) // Last 20 messages for context
                 .map(line => line.text);
               
               const context = {

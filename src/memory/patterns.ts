@@ -10,6 +10,7 @@
  */
 
 import type { ImportanceSignal, ImportanceSignalType } from '../types.js';
+import * as os from 'os';
 
 // =============================================================================
 // Pattern Category Types
@@ -697,6 +698,24 @@ export function hasGlobalScopeKeyword(text: string): boolean {
 // Detects if a memory should be project-scoped based on conversation context
 // =============================================================================
 
+// Signal weights for project scope detection
+const PROJECT_SIGNAL_WEIGHTS = {
+  PROJECT_PATH_MENTIONED: 0.4,      // Full project path appears in conversation
+  PROJECT_TERM_MATCH: 0.3,          // Each project term match
+  EXPLICIT_PROJECT_CONTEXT: 0.3,    // Phrases like "in this project"
+  FILE_REFERENCE: 0.1,               // Each file reference (.ts, .js, etc.)
+} as const;
+
+// Threshold for determining project scope (0-1 scale)
+const PROJECT_SCOPE_THRESHOLD = 0.4;
+
+// Stop words to filter out from project names
+const PROJECT_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'src', 'dist', 'node', 'modules',
+  'lib', 'bin', 'test', 'tests', 'docs', 'doc', 'config', 'build', 
+  'public', 'app', 'core', 'utils', 'util', 'common', 'shared', 'src'
+]);
+
 export interface ConversationContext {
   recentMessages: string[];
   worktree: string;
@@ -708,6 +727,12 @@ export interface ConversationContext {
  * e.g., "/Users/.../oh-my-opencode-slim" → ["oh-my-opencode-slim", "opencode", "slim"]
  */
 export function extractProjectTerms(worktree: string): string[] {
+  // FIX: Check for home directory edge case
+  const homeDir = os.homedir();
+  if (worktree === homeDir || worktree === '/') {
+    return []; // Home directory is not a project
+  }
+  
   const parts = worktree.split('/');
   const projectName = parts[parts.length - 1];
   
@@ -715,12 +740,12 @@ export function extractProjectTerms(worktree: string): string[] {
     return [];
   }
   
-  // Split by common separators and filter
+  // FIX: Use expanded stop words list
   return projectName
     .split(/[-_.]/)
     .map(part => part.toLowerCase())
     .filter(part => part.length > 2)
-    .filter(part => !['the', 'and', 'for', 'src', 'dist', 'node', 'modules'].includes(part));
+    .filter(part => !PROJECT_STOP_WORDS.has(part));
 }
 
 /**
@@ -732,18 +757,20 @@ export function detectProjectSignals(context: ConversationContext): { score: num
   const reasons: string[] = [];
   const recentText = context.recentMessages.join(' ').toLowerCase();
   
-  // Signal 1: File paths in project directory
+  // FIX: Signal 1: File paths in project directory (cross-platform)
   const projectPath = context.worktree.toLowerCase();
-  if (recentText.includes(projectPath) || recentText.includes(projectPath.replace(/\/Users\/[^/]+/, '~'))) {
-    score += 0.4;
+  const homeDir = os.homedir().toLowerCase();
+  // Support both full path and tilde-expanded path
+  const tildePath = projectPath.replace(homeDir, '~');
+  if (recentText.includes(projectPath) || recentText.includes(tildePath)) {
+    score += PROJECT_SIGNAL_WEIGHTS.PROJECT_PATH_MENTIONED;
     reasons.push('project_path_mentioned');
   }
   
-  // Signal 2: Project-specific terms
-  const projectTerms = extractProjectTerms(context.worktree);
-  const termMatches = projectTerms.filter(term => recentText.includes(term));
+  // FIX: Signal 2: Project-specific terms (use pre-computed terms from context)
+  const termMatches = context.projectTerms.filter(term => recentText.includes(term));
   if (termMatches.length > 0) {
-    score += Math.min(0.3 * termMatches.length, 0.5);
+    score += Math.min(PROJECT_SIGNAL_WEIGHTS.PROJECT_TERM_MATCH * termMatches.length, 0.5);
     reasons.push(`project_terms: ${termMatches.join(', ')}`);
   }
   
@@ -757,15 +784,15 @@ export function detectProjectSignals(context: ConversationContext): { score: num
     /for (this |the )?project/i,
   ];
   if (projectPhrases.some(p => p.test(recentText))) {
-    score += 0.3;
+    score += PROJECT_SIGNAL_WEIGHTS.EXPLICIT_PROJECT_CONTEXT;
     reasons.push('explicit_project_context');
   }
   
-  // Signal 4: Technical terms specific to this codebase
-  // Check if memory mentions files/tools specific to the project
-  const fileReferences = recentText.match(/\b[A-Za-z_-]+\.(ts|js|json|md|py)\b/g);
+  // FIX: Signal 4: Technical terms specific to this codebase
+  // Improved regex to avoid matching URLs and require path-like context
+  const fileReferences = recentText.match(/(?:^|[\s"'/])[A-Za-z_-]+\.(ts|js|json|md|py)\b/g);
   if (fileReferences && fileReferences.length > 0) {
-    score += Math.min(0.1 * fileReferences.length, 0.3);
+    score += Math.min(PROJECT_SIGNAL_WEIGHTS.FILE_REFERENCE * fileReferences.length, 0.3);
     reasons.push(`file_refs: ${fileReferences.slice(0, 3).join(', ')}`);
   }
   
@@ -789,8 +816,8 @@ export function shouldBeProjectScope(
   // Detect project signals in context
   const signals = detectProjectSignals(context);
   
-  // Threshold for project scope
-  if (signals.score >= 0.4) {
+  // FIX: Use documented threshold constant for project scope
+  if (signals.score >= PROJECT_SCOPE_THRESHOLD) {
     return { 
       isProjectScope: true, 
       confidence: signals.score, 
@@ -798,10 +825,10 @@ export function shouldBeProjectScope(
     };
   }
   
-  // Also check if memory text itself contains project-specific references
-  const projectTerms = extractProjectTerms(context.worktree);
+  // FIX: Also check if memory text itself contains project-specific references
+  // Use pre-computed terms from context instead of re-extracting
   const textLower = memoryText.toLowerCase();
-  const directMatches = projectTerms.filter(term => textLower.includes(term));
+  const directMatches = context.projectTerms.filter(term => textLower.includes(term));
   if (directMatches.length > 0) {
     return {
       isProjectScope: true,
