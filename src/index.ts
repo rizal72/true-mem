@@ -51,7 +51,15 @@ const TrueMemory: Plugin = async (ctx) => {
   // FIX: Detect hot-reload and reset state
   // After hot-reload, state persists but we need fresh initialization
   if (state.initialized || state.initializingLock) {
-    log('Hot-reload detected, resetting plugin state for re-initialization');
+    const previousState = {
+      initialized: state.initialized,
+      initializingLock: state.initializingLock,
+      hasInitPromise: !!state.initPromise,
+      hasRealHooks: !!state.realHooks
+    };
+    
+    log('Hot-reload detected, resetting state', previousState);
+    
     state.initialized = false;
     state.initializingLock = false;
     state.initPromise = null;

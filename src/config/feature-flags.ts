@@ -55,6 +55,12 @@ export function getEmbeddingsEnabled(): boolean {
       const configJson = readFileSync(CONFIG_FILE, 'utf-8');
       const config: PluginConfig = JSON.parse(configJson);
       
+      // DEFENSIVE: Validate config structure
+      if (typeof config.embeddingsEnabled !== 'boolean') {
+        log('Config corrupted (embeddingsEnabled not boolean), using default (disabled)');
+        return false;
+      }
+      
       log(`Feature flag from config: ${config.embeddingsEnabled} (checked at ${config.lastEnvCheck})`);
       return config.embeddingsEnabled;
     } catch (err) {

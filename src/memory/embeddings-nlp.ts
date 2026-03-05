@@ -77,19 +77,23 @@ export class EmbeddingService {
   }
 
   async initialize(): Promise<boolean> {
-    // NOTE: Feature flag check is done by getEmbeddingsEnabled() in src/index.ts
-    // This method should only be called if embeddings are enabled
-
-    // FIX: Reset circuit breaker state to allow re-initialization after crash
-    // This is safe because we're about to spawn a fresh worker
-    this.failureCount = 0;
-    this.lastFailure = 0;
-
-    // Check circuit breaker (will be false now after reset)
-    if (this.isCircuitBreakerOpen()) {
-      log('NLP embeddings circuit breaker open, skipping');
+    // DEFENSIVE: Verify embeddings should be enabled
+    // This prevents accidental initialization if called directly
+    const { getEmbeddingsEnabled } = await import('../config/feature-flags.js');
+    if (!getEmbeddingsEnabled()) {
+      log('DEFENSIVE: initialize() called but embeddings disabled - aborting');
       return false;
     }
+    
+    // Check circuit breaker BEFORE reset (prevents thrashing)
+    if (this.isCircuitBreakerOpen()) {
+      log('NLP embeddings circuit breaker open, skipping initialization');
+      return false;
+    }
+    
+    // Reset circuit breaker for fresh attempt
+    this.failureCount = 0;
+    this.lastFailure = 0;
 
     // CRITICAL: Check if Node.js is available
     const nodeAvailable = await this.checkNodeAvailable();
