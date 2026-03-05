@@ -184,3 +184,74 @@ If users ask about semantic search:
 - Transformers.js Issue #1491: Memory leak patterns
 - FastEmbed-js: Archived Jan 15, 2026
 - Model comparison: all-MiniLM-L6-v2 (43MB) vs Jina v5 (456MB)
+
+---
+
+## Implementation Log (March 2026)
+
+**Status:** Experimental branch `NLP` - Working locally
+
+### What Was Implemented
+
+1. **EmbeddingService** (`src/memory/embeddings-nlp.ts`)
+   - Singleton pattern for worker management
+   - Circuit breaker (3 failures / 5 min)
+   - Race condition fix (promise before worker spawn)
+   - Path resolution from package root
+
+2. **Worker Thread** (`src/memory/embedding-worker.ts`)
+   - Transformers.js v4 with `eval('import()')` hack for bundling
+   - Model: all-MiniLM-L6-v2 (q8 quantized)
+   - Memory monitoring (500MB cap)
+   - Graceful shutdown with dispose()
+   - Interval cleanup to prevent leaks
+
+3. **Hybrid Similarity** (`src/memory/embeddings.ts`)
+   - Jaccard fast path (>0.7)
+   - Blending: 30% Jaccard + 70% Cosine
+   - Fallback to Jaccard if embeddings fail
+   - Detailed logging for tracking
+
+4. **Integration** (`src/storage/database.ts`)
+   - **CRITICAL FIX:** vectorSearch now uses getSimilarity() instead of jaccardSimilarity()
+   - Async/Promise.all for batch similarity calculation
+   - Embeddings now actually used in retrieval!
+
+### Issues Found & Fixed
+
+| Issue | File | Fix |
+|-------|------|-----|
+| Race condition | embeddings-nlp.ts | Create promise before worker spawn |
+| Path resolution | embeddings-nlp.ts | Walk up to package root |
+| Bundling crash | embedding-worker.ts | Use eval('import()') for Transformers.js |
+| env undefined | embedding-worker.ts | Configure after loading |
+| Handler leak | embeddings-nlp.ts | Remove handler on timeout |
+| Interval leak | embedding-worker.ts | clearInterval() in SIGTERM |
+| TUI pollution | embedding-worker.ts | Send logs to parent instead of stdout |
+| **Not used in retrieval!** | database.ts | Replace jaccardSimilarity with getSimilarity |
+
+### Test Results
+
+**Successful initialization:**
+```
+[embedding-worker] Loading Transformers.js...
+[embedding-worker] Transformers.js configured, cacheDir: ~/.true-mem/models
+[embedding-worker] Transformers.js loaded, initializing model: Xenova/all-MiniLM-L6-v2
+[embedding-worker] Model loaded successfully
+Embedding worker ready
+NLP embeddings initialized successfully
+```
+
+### Known Limitations
+
+- Cold start: 2-3s (model download first time)
+- Worker bundle: 2.56 KB (loads Transformers.js dynamically)
+- No semantic classification (only retrieval)
+- Not production-ready (experimental branch)
+
+### Next Steps
+
+1. **Oracle review** - Verify complete workflow
+2. **Extended testing** - 100 hours TUI usage
+3. **Performance benchmarks** - Latency, memory, accuracy
+4. **Decision** - Merge to main or keep separate
