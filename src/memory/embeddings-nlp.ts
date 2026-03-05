@@ -74,11 +74,8 @@ export class EmbeddingService {
   }
 
   async initialize(): Promise<boolean> {
-    // Check feature flag - must be explicitly set to '1' to enable
-    if (process.env.TRUE_MEM_EMBEDDINGS !== '1') {
-      log('NLP embeddings disabled (TRUE_MEM_EMBEDDINGS not set to 1)');
-      return false;
-    }
+    // NOTE: Feature flag check is done by getEmbeddingsEnabled() in src/index.ts
+    // This method should only be called if embeddings are enabled
 
     // FIX: Reset circuit breaker state to allow re-initialization after crash
     // This is safe because we're about to spawn a fresh worker
