@@ -14,6 +14,7 @@ import { log } from './logger.js';
 import { getVersion } from './utils/version.js';
 import { showToast } from './utils/toast.js';
 import { EmbeddingService } from './memory/embeddings-nlp.js';
+import { getEmbeddingsEnabled } from './config/feature-flags.js';
 
 // Singleton state - shared across all hook calls
 let state: {
@@ -47,6 +48,16 @@ const TrueMemory: Plugin = async (ctx) => {
     }, 2000);
   }
 
+  // FIX: Detect hot-reload and reset state
+  // After hot-reload, state persists but we need fresh initialization
+  if (state.initialized || state.initializingLock) {
+    log('Hot-reload detected, resetting plugin state for re-initialization');
+    state.initialized = false;
+    state.initializingLock = false;
+    state.initPromise = null;
+    state.realHooks = null;
+  }
+
   // Start initialization IMMEDIATELY but DON'T await
   // Use lock to prevent concurrent initialization
   if (!state.initializingLock) {
@@ -67,8 +78,11 @@ const TrueMemory: Plugin = async (ctx) => {
         state.realHooks = await createTrueMemoryPlugin(state.ctx);
         state.initialized = true;
 
-        // Initialize NLP embeddings if feature flag is set to '1'
-        if (process.env.TRUE_MEM_EMBEDDINGS === '1') {
+        // Initialize NLP embeddings if feature flag is enabled
+        const embeddingsEnabled = getEmbeddingsEnabled();
+        
+        if (embeddingsEnabled) {
+          log('Embeddings enabled, initializing...');
           const embeddingService = EmbeddingService.getInstance();
           const initialized = await embeddingService.initialize();
           if (initialized) {
@@ -76,6 +90,8 @@ const TrueMemory: Plugin = async (ctx) => {
           } else {
             log('NLP embeddings failed to initialize, using Jaccard only');
           }
+        } else {
+          log('Embeddings disabled');
         }
 
         log('Phase 1 complete - Plugin ready');

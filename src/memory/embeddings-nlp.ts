@@ -80,7 +80,12 @@ export class EmbeddingService {
       return false;
     }
 
-    // Check circuit breaker
+    // FIX: Reset circuit breaker state to allow re-initialization after crash
+    // This is safe because we're about to spawn a fresh worker
+    this.failureCount = 0;
+    this.lastFailure = 0;
+
+    // Check circuit breaker (will be false now after reset)
     if (this.isCircuitBreakerOpen()) {
       log('NLP embeddings circuit breaker open, skipping');
       return false;
@@ -167,14 +172,14 @@ export class EmbeddingService {
 
       // Handle worker errors
       this.worker.on('error', (err: any) => {
-        log('Embedding worker error:', err?.message || err?.toString() || String(err));
+        log(`Worker ERROR: ${err?.message || err?.toString() || String(err)}, stack: ${err?.stack || 'N/A'}`);
         this.recordFailure();
         this.cleanup();
       });
 
       // Handle worker exit
       this.worker.on('exit', (code, signal) => {
-        log(`Embedding worker exited with code ${code}, signal: ${signal}`);
+        log(`Worker EXIT: code=${code}, signal=${signal}, killed=${this.worker?.killed}`);
         
         // HIGH: Clean up pending requests on worker exit
         for (const [requestId, pending] of this.pendingRequests) {
@@ -237,6 +242,14 @@ export class EmbeddingService {
       return null;
     }
 
+    // FIX: Guard against killed worker
+    if (this.worker.killed) {
+      log('Worker is killed, cannot get embeddings');
+      this.enabled = false;
+      this.ready = false;
+      return null;
+    }
+
     try {
       const requestId = crypto.randomUUID();
       
@@ -250,8 +263,16 @@ export class EmbeddingService {
         // Store pending request with resolve/reject callbacks
         this.pendingRequests.set(requestId, { resolve, reject, timeout });
 
-        // Send request with requestId for correlation via IPC
-        this.worker!.send({ type: 'embed', requestId, texts });
+        // FIX: Wrap send in try-catch to prevent crash on dead worker
+        try {
+          this.worker!.send({ type: 'embed', requestId, texts });
+        } catch (sendError) {
+          clearTimeout(timeout);
+          this.pendingRequests.delete(requestId);
+          log('Failed to send to worker:', sendError);
+          this.recordFailure();
+          resolve(null); // Resolve with null instead of rejecting
+        }
       });
     } catch (error) {
       log('Embedding computation failed:', error);

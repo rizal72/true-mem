@@ -15,190 +15,38 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 
 ## CURRENT STATUS
 
-**Aggiornamento**: 05/03/2026 - v1.2.0-rc.0 - Meta-command detection
+**Aggiornamento**: 05/03/2026 - v1.2.0-rc.0 - Hot-reload resilience
 
 ### Stato Implementazione
 
 | Componente | Status |
 |------------|--------|
-| Build (bun) | OK - 127.50 KB |
+| Build (bun) | OK - 140.72 KB |
 | TypeCheck | OK - 0 errors |
 | Runtime | OK - Funzionante |
-| npm | Pubblicato 1.1.0 (main), rc in develop |
+| npm | Pubblicato 1.1.1 (main), rc in develop |
 | GitHub Actions | OK - NPM_TOKEN secret |
 | Toast | OK - Tutte le sessioni |
 | Meta-Command | OK - Previene loop infiniti |
+| Hot-Reload | OK - Embeddings sopravvivono ai restart |
 
 ### Branch Attivi
 
 | Branch | Scopo | Status |
 |--------|-------|--------|
 | `main` | Produzione (Jaccard only) | Stable v1.1.1 |
-| `develop` | **Development** - Contextual scope detection, NLP embeddings (opzionale), nuove feature | Testing locale |
+| `develop` | **Development** - Hybrid embeddings, hot-reload fixes | Testing locale |
 
 **Branch `develop`:**
 - Branch di sviluppo per nuove feature prima del merge in main
-- Include: contextual scope detection, hybrid embeddings (opzionale)
-- Architettura: Jaccard (sempre attivo) + Transformers.js v4 (opzionale via feature flag)
+- Include: hybrid embeddings (opzionale), hot-reload resilience
+- Architettura: Jaccard (sempre attivo) + Transformers.js v4 via Node.js worker (opzionale)
 - Feature flag: `TRUE_MEM_EMBEDDINGS=1` (unset/disabled = Jaccard-only)
-- Documentazione: `docs/nlp-embeddings-analysis.md`
 - **NON per rilascio diretto** - Solo test locali, merge in main per release
 
-**Fix Applicati su develop:**
-1. **Meta-Command Detection:** Rilevazione comandi al sistema memoria (es. "cancelliamo questa memoria") per prevenire loop infiniti - vedi sezione dedicata
-2. **Contextual scope detection:** Memorie user-level (preference, constraint, etc.) ora possono essere project-scoped basate sul contesto conversazione
-3. **Hybrid similarity consistency:** `database.ts:429` ora usa `getSimilarity()` invece di `jaccardSimilarity()` per reconsolidation
-4. **SIGINT handler:** Aggiunto handler per Ctrl+C nel worker thread
-5. **Graceful shutdown:** Worker cleanup via messaggio + timeout (2s) prima di force terminate
-6. **Env check fix:** `TRUE_MEM_EMBEDDINGS` deve essere esplicitamente `'1'` per attivare embeddings
-7. **Node.js Worker Solution:** Implementata soluzione ibrida Bun+Node.js per evitare Bun panic crash
-8. **Oracle Review Fixes:** Addressati tutti i problemi critici identificati da Oracle (Node.js check, busy-wait, pending cleanup, multiple ready guard)
-9. **Worktree Persistence:** Fix per worktree che diventa "unknown-project-{timestamp}" dopo il riavvio del plugin (persistenza in variabile modulo)
-
 **Problemi Noti (develop branch):**
-- ✅ **Bun panic risolto** - Implementata soluzione Node.js Worker (ONNX stabile)
-- ⚠️ Embeddings usate solo in `tool.execute.before`, non nel retrieval globale delle memorie
-- ⚠️ Non testato in produzione
-
-### Bun Panic Crash - Problema Noto e Ricorrente
-
-**Status:** Problema critico di stabilità, MULTIPLE TENTATIVI DI FIX FALLITI
-
-**Sintomo:**
-```
-panic(main thread): A C++ exception occurred
-oh no: Bun has crashed. This indicates a bug in Bun, not your code.
-```
-
-**Quando si verifica:**
-- Durante l'elaborazione embeddings nel worker thread (30s window)
-- Dopo inizializzazione corretta di Transformers.js
-- Durante chiamate `extract()` nel worker
-- Blocca terminale, visibile solo alla chiusura di OpenCode
-- Causa riavvio plugin + worktree "unknown"
-
-**Cosa abbiamo provato (senza successo):**
-1. ✅ Single listener pattern (ridotto da 200+ a 1 listener)
-2. ✅ SIGINT handler nel worker
-3. ✅ Graceful shutdown con messaggio + timeout
-4. ✅ Circuit breaker (3 fallimenti/5min)
-5. ✅ Memory cap 500MB
-6. ✅ Worker isolato in thread separato
-7. ✅ Dynamic import via `eval('import()')`
-
-**Root Cause:**
-Instabilità fondamentale tra **Bun v1.3.10** e **Transformers.js v4** - il crash è un C++ exception in Bun stesso, non nel nostro codice. Possibili cause:
-- WASM/WebAssembly incompatibility con Bun
-- Memory leak in Transformers.js non gestito da Bun
-- Bug Bun nel garbage collection di worker threads
-
-**Decisione:**
-- **DEFAULT:** `TRUE_MEM_EMBEDDINGS=0` (Jaccard-only, stabile)
-- **OPZIONALE:** `TRUE_MEM_EMBEDDINGS=1` (usa Node.js worker, stabile)
-- **NON BLOCCANTE** per release - embeddings sono feature opzionale
-
-**Soluzione Implementata (Node.js Worker):**
-Per risolvere il Bun panic crash, abbiamo implementato una soluzione ibrida:
-- **Main thread:** Continua a usare Bun (veloce, bundle efficiente)
-- **Worker embeddings:** Usa Node.js child process (ONNX Runtime stabile)
-- **Comunicazione:** IPC via `child_process.spawn()` con stesso formato messaggi
-
-**Vantaggi:**
-- ✅ Stabile - Node.js ha ONNX Runtime maturo e testato
-- ✅ Minimi cambiamenti architetturali
-- ✅ Mantiene Bun per il plugin principale
-- ✅ Transformers.js v4 funziona correttamente in Node.js
-
-**File modificati:**
-- `src/memory/embeddings-nlp.ts` - Usa `spawn('node', ...)` invece di `Worker`
-- `src/memory/embedding-worker.ts` - Script Node.js standalone (no worker_threads)
-
-**Riferimento:** Questo problema è documentato anche in commit history e issue tracker Bun.
-
-**Workflow Raccomandato:**
-```bash
-# Usa develop branch con Jaccard-only (comportamento = main)
-git checkout develop
-export TRUE_MEM_EMBEDDINGS=0  # o non settare
-bun run build
-
-# Per testare embeddings (sperimentale, rischio crash)
-export TRUE_MEM_EMBEDDINGS=1
-```
-
-**Implementazione:**
-
-```
-Main Thread (TUI)
-  ├─ Jaccard (sempre attivo, fallback)
-  └─ EmbeddingService (opzionale)
-       └─ Worker Thread (isolato)
-            ├─ Transformers.js v4
-            ├─ all-MiniLM-L6-v2 (q8 quantized)
-            └─ Memory monitoring (500MB cap)
-```
-
-| Componente | File | Funzione |
-|------------|------|----------|
-| EmbeddingService | `src/memory/embeddings-nlp.ts` | Singleton con circuit breaker |
-| Worker thread | `src/memory/embedding-worker.ts` | Isolamento Transformers.js |
-| Hybrid similarity | `src/memory/embeddings.ts` | Jaccard + cosine blending |
-| Init/Cleanup | `src/index.ts`, `src/adapters/opencode/index.ts` | Startup/shutdown handlers |
-| **Retrieval** | `src/storage/database.ts` | **FIX CRITICO:** usa `getSimilarity()` invece di `jaccardSimilarity()` |
-
-- **Modello:** `all-MiniLM-L6-v2` (q8 quantized, 384 dims, CPU only)
-- **Safety:** Circuit breaker (3 fallimenti/5min), memory cap 500MB, timeout 5s, graceful degradation a Jaccard
-- **Bundle:** Worker 2.56 KB (carica Transformers.js dinamicamente via `eval('import()')`)
-- **Status:** Funzionante in locale, test in corso
-
-**Come testare:**
-```bash
-git checkout NLP
-export TRUE_MEM_EMBEDDINGS=1
-bun run build
-# Test in OpenCode, monitora crash e memoria
-```
-
----
-
-## Architecture Review (v1.0.12)
-
-### Risolti (13/13)
-
-**Oracle review** ha identificato 13 problemi. Risolti tutti (CRITICAL, HIGH, P1, P2):
-
-| Priority | Issue | Fix |
-|----------|-------|-----|
-| **P0** | lastExtractionTime aggiornato in `canExtract()` | Spostato a fine `runExtraction()` |
-| **P0** | DB transaction + async | `vectorSearch()` chiamata fuori transazione |
-| **P1** | Watermark loop infinito | Logica `messagesProcessed` per skip messaggi già processati |
-| **P1** | Nessun flag per successo estrazione | `extractionSucceeded` check prima di update |
-| **P2** | `getMemory()` null assertion | Try-catch + return null |
-| **P2** | `vectorSearch()` inconsistency | Empty query → return [] |
-| **P2** | injectedSessions memory leak | Rimosso legacy code |
-| **P2** | worktree undefined → crash | Fallback a `unknown-project-*` |
-| **P2** | Singleton state sync | Refactor `initialize()` per return instance |
-| **P3** | extractionQueue lifecycle | Aggiunto `resetExtractionQueue()` |
-| **P4** | Versione hardcoded | `getVersion()` dinamico |
-| **P5** | Legacy code cleanup | Rimosso `injectedSessions` |
-| **P6** | markerPatterns ignorato | Check PRIMA del signal check |
-
-### Rimanenti (0/13)
-
-Tutti i problemi identificati da Oracle sono stati risolti.
-
----
-
-## Scope Logic Fix (v1.0.14)
-
-### Bug Risolti
-
-| Bug | Soluzione |
-|-----|-----------|
-| markerPatterns ignorato | Check markerPatterns PRIMA del signal check in `classifyWithExplicitIntent()` |
-| Global keyword in marker | `hasGlobalScopeKeyword(text)` controlla testo completo, non solo `isolatedContent` |
-
-**Caso d'uso risolto:** "ricordati per sempre che X" → ora correttamente GLOBAL scope
+- ⚠️ Plugin restart durante elaborazione prompt (OpenCode behavior, non bloccante)
+- ✅ Embeddings re-inizializzate correttamente dopo restart
 
 ---
 
@@ -207,9 +55,9 @@ Tutti i problemi identificati da Oracle sono stati risolti.
 **True-Mem** - Plugin memoria persistente per OpenCode, ispirato a [PsychMem](https://github.com/muratg98/psychmem) con miglioramenti:
 - Init non-bloccante (fire-and-forget)
 - Decay solo episodic (preferenze permanenti)
-- Jaccard similarity (no embeddings pesanti)
+- Hybrid similarity (Jaccard + embeddings opzionali)
 - Four-layer defense contro false positives
-- Top-k retrieval contestuale
+- Hot-reload resilient feature flags
 
 ---
 
@@ -218,6 +66,8 @@ Tutti i problemi identificati da Oracle sono stati risolti.
 ```
 src/
 ├── index.ts              # Entry point, fire-and-forget init
+├── config/
+│   └── feature-flags.ts  # Hot-reload resilient feature flags
 ├── storage/
 │   ├── sqlite-adapter.ts # bun:sqlite + node:sqlite
 │   └── database.ts       # MemoryDatabase class
@@ -225,7 +75,8 @@ src/
 │   ├── patterns.ts       # Multilingual keywords (15 lingue)
 │   ├── negative-patterns.ts # False positive prevention
 │   ├── classifier.ts     # Four-layer defense
-│   ├── embeddings.ts     # Jaccard similarity
+│   ├── embeddings.ts     # Hybrid similarity (Jaccard + cosine)
+│   ├── embeddings-nlp.ts # EmbeddingService singleton
 │   └── reconsolidate.ts  # Conflict resolution
 ├── extraction/queue.ts   # Async extraction
 └── adapters/opencode/    # OpenCode hooks
@@ -233,70 +84,69 @@ src/
 
 ---
 
-## Embeddings: Storia Implementazione
+## Embeddings Architecture
 
-### Originale: Vector Embeddings con Transformers.js
+**Hybrid Bun+Node.js Solution:**
 
-La prima implementazione usava **true semantic embeddings**:
+```
+Main Thread (Bun)
+├─ Plugin hooks (OpenCode API)
+├─ Database (SQLite)
+├─ Feature flags (hot-reload resilient)
+└─ EmbeddingService (singleton)
+     └─ Node.js child process worker
+          ├─ Transformers.js v4
+          ├─ all-MiniLM-L6-v2 (q8 quantized, 384 dims)
+          └─ ONNX Runtime (stable)
+```
 
-| Componente | Dettaglio |
-|------------|-----------|
-| Libreria | `@huggingface/transformers` |
-| Modello | `Xenova/all-MiniLM-L6-v2` (quantized) |
-| RAM | ~43MB |
-| Performance | Prima chiamata: 2-3s (model loading), successive: 50-100ms |
-| Retrieval | Cosine similarity su vector a 384 dimensioni |
+**Safety Features:**
+- Circuit breaker: 3 failures / 5 min
+- Memory monitoring: 500MB cap
+- Timeout: 5s per request
+- Graceful degradation to Jaccard
 
-**Vantaggi:**
-- True semantic search (sinonimi, concetti correlati)
-- "error" matcha "exception", "bug" matcha "issue"
+**Hot-Reload Resilience:**
+- Env var saved to `~/.true-mem/config.json`
+- Config file used when env var undefined
+- Requires OpenCode restart to change settings
 
-### Perché abbandonato
-
-| Problema | Dettaglio |
-|----------|-----------|
-| **Bundling** | `bun build` bundleava male → richiedeva `eval('import(...)')` hack |
-| **Crash all'uscita** | Transformers.js non si puliva correttamente → OpenCode crashava |
-| **Complessità** | Dipendenza ML nativa, overhead di manutenzione |
-
-### Soluzione attuale: Jaccard Similarity
-
-Il file `src/memory/embeddings.ts` è diventato uno **stub**:
-- `jaccardSimilarity(text1, text2)` → calcola overlap parole
-- Tutte le funzioni vector restituiscono valori vuoti
-
-**Trade-off:**
-- No sinonimi ("error" ≠ "exception")
-- Ma: zero dipendenze, zero crash, istantaneo
-- Per coding assistant: sufficiente (termini tecnici consistenti)
-
-### Possibile ripresa futura
-
-Se Transformers.js risolve i problemi di cleanup:
-1. Rimuovere lo stub da `embeddings.ts`
-2. Ripristinare implementazione originale (vedere commit `b93bc50`)
-3. Aggiornare `package.json` con dipendenza `@huggingface/transformers`
-
-**Riferimento:** PLAN.md originale nel commit `d4325f0` contiene implementazione completa.
+**Feature Flag:**
+```bash
+export TRUE_MEM_EMBEDDINGS=1  # Enable embeddings
+export TRUE_MEM_EMBEDDINGS=0  # Disable (default)
+```
 
 ---
 
-## Estrazione Memorie
+## Memory Injection
 
-**Trigger**: `session.idle` (quando l'utente smette di scrivere)
+### Quando vengono iniettate le memorie?
 
-**Delays**:
-1. **2 secondi** debounce globale tra estrazioni
-2. **queueMicrotask()** per non bloccare UI
+**Hook:** `experimental.chat.system.transform`
+- Chiamato **prima di ogni richiesta al modello**
+- Inietta memorie in tempo reale nel system prompt
 
-**Flusso**:
-1. Utente invia messaggio → session diventa idle
-2. Evento `session.idle` → job aggiunto alla queue
-3. Check `canExtract()` → verifica 2s dall'ultima estrazione
-4. Fetch nuovi messaggi dal watermark
-5. Estrazione → salvataggio nel DB
+**Flusso:**
+```
+Utente scrive messaggio → OpenCode prepara richiesta → 
+Hook transform eseguito → Memorie iniettate nel system → 
+Richiesta inviata al modello con memorie incluse
+```
 
-**Schema DB**: colonna scope è `project_scope` (non `scope`)
+### Selezione Memorie
+
+**Strategia attuale:**
+- `getMemoriesByScope(worktree, 20)` ordina per **strength DESC**
+- Prende le 20 memorie con strength più alta
+- **NON** per rilevanza semantica al contesto
+
+**Configurazione limite:**
+```bash
+export TRUE_MEM_MAX_MEMORIES=20  # Default
+export TRUE_MEM_MAX_MEMORIES=25  # Più contesto
+export TRUE_MEM_MAX_MEMORIES=15  # Meno token
+```
 
 ---
 
@@ -312,34 +162,10 @@ Se Transformers.js risolve i problemi di cleanup:
 | semantic | Mai | Project | "API usa REST" |
 | episodic | Si (7gg) | Project | "Ieri abbiamo refactorato" |
 
-### Pattern di Classificazione
-
-**Episodic** - Riconoscimento automatico tramite marker temporali:
-- **IT**: "ieri", "oggi", "abbiamo fatto", "siamo arrivati", "durante la call", "nel meeting"
-- **EN**: "yesterday", "today", "we did", "we made", "during the session", "in the meeting"
-- **Boosters**: "session", "call", "meeting", "just", "adesso"
-
-**Priorità Classificazioni** (ordine di valutazione):
-1. `episodic` - Eventi temporali specifici
-2. `decision` - Scelte architetturali
-3. `learning` - Scoperte permanenti (senza marker temporali)
-4. `preference` - Preferenze utente
-5. `constraint` - Vincoli assoluti
-6. `procedural` - Workflow e procedure
-
-**Nota**: Quando una frase contiene sia marker temporali ("ieri") che keyword di apprendimento ("ho imparato"), vince `episodic` perché l'evento è specifico nel tempo.
-
 ### Pre-filtraggio Contenuti
 
-Prima della classificazione, il sistema filtra automaticamente:
-- **URL > 150 caratteri** - Skip (evita API dumps, stack traces)
+- **URL > 150 caratteri** - Skip (evita API dumps)
 - **Contenuti > 500 caratteri** - Skip (evita clipboard accidentali)
-
-Questo previene la memorizzazione di:
-- Stack trace completi
-- Output di log
-- URL con query parameters lunghi
-- Contenuti copiati accidentalmente
 
 ---
 
@@ -347,76 +173,37 @@ Questo previene la memorizzazione di:
 
 **Regola**: "Ricordami..." → default **PROJECT scope**
 
-Per memorizzare in **GLOBAL scope**, il testo deve contenere una keyword globale:
+Per memorizzare in **GLOBAL scope**, il testo deve contenere keyword globale:
+- English: always, everywhere, for all projects, globally
+- Italian: sempre, ovunque, per tutti i progetti, globalmente
+- + ES, FR, DE, PT, NL, PL, TR
 
-| Lingua | Keywords |
-|--------|----------|
-| English | always, everywhere, for all projects, globally |
-| Italian | sempre, ovunque, per tutti i progetti, globalmente |
-| Spanish | siempre, en todas partes, para todos los proyectos |
-| French | toujours, partout, pour tous les projets |
-| German | immer, überall, für alle projekte |
-| Portuguese | sempre, em todos os projetos |
-| + Dutch, Turkish, Polish | altijd, her zaman, zawsze... |
-
-**Esempi:**
-- "Ricordami che uso bun" → **Project scope** (default)
-- "Ricordami **sempre** che uso bun" → **Global scope** (keyword presente)
-- "Remember to **always** run tests" → **Global scope** (keyword presente)
-
-**File**: `src/memory/patterns.ts` → `GLOBAL_SCOPE_KEYWORDS` + `hasGlobalScopeKeyword()`
+**File:** `src/memory/patterns.ts` → `GLOBAL_SCOPE_KEYWORDS`
 
 ---
 
-## Home Directory Behavior
-
-Quando una sessione viene lanciata dalla **cartella home** (`~/`) o da una directory che non è un progetto git:
-
-### Come viene determinato lo scope
-
-```ts
-// src/adapters/opencode/index.ts:127-129
-const isValidPath = (path: string | undefined): boolean => {
-  return !!(path && path !== '/' && path !== '\\' && path.trim().length > 0);
-};
-
-const worktree = isValidPath(ctx.worktree)
-  ? ctx.worktree
-  : (isValidPath(ctx.directory) ? ctx.directory : `unknown-project-${Date.now()}`);
-```
-
-La home (`/Users/riccardosallusti`) è un path **valido**, quindi viene usata come `worktree`.
-
-### Risultato pratico
-
-| Tipo memoria | Scope DB | Dove è visibile |
-|--------------|----------|-----------------|
-| preference, constraint, learning, procedural | `NULL` (Global) | **Ovunque** |
-| decision, semantic, episodic | `/Users/riccardosallusti` (Project) | **Solo dalla home** |
-
-### Comportamento attuale
-
-True-Mem tratta la home come un **"progetto generico"**:
-- Le memorie GLOBAL (preference, constraint, etc.) sono sempre visibili ovunque
-- Le memorie PROJECT create dalla home restano **isolate** nella home
-- Per rendere una memoria decision/semantic globale dalla home, usare keyword globali ("sempre", "ovunque")
-
-### Possibili evoluzioni future
-
-1. **Ignorare** memorie project-level quando non si è in un git repo
-2. **Promuovere automaticamente** a global le memorie create dalla home
-3. **Rilevare** se si è in `PROJECTS_ROOT` e usare scope diverso
-
-**Stato attuale**: Comportamento intenzionalmente lasciato così (home = progetto generico)
-
----
-
-## Four-Layer Defense (False Positive Prevention)
+## Four-Layer Defense
 
 1. **Question Detection** - Filtra domande (finiscono con ?)
-2. **Negative Patterns** - AI meta-talk, list selection, 1st person recall, remind recall (10 lingue)
+2. **Negative Patterns** - AI meta-talk, list selection, 1st person recall (10 lingue)
 3. **Multi-Keyword + Sentence-Level** - Richiede 2+ segnali nella stessa frase
 4. **Confidence Threshold** - Salva solo se score >= 0.6
+
+---
+
+## Meta-Command Detection
+
+**Problema:** Loop infinito quando si chiede di cancellare una memoria usando il suo pattern.
+
+**Soluzione:** Pattern `MEMORY_COMMAND_PATTERNS` che rilevano comandi diretti al sistema memoria.
+
+| Pattern | Azione |
+|---------|--------|
+| "cancelliamo questa memoria: ho capito X" | **BLOCK** |
+| "ho imparato come cancellare file" | **ALLOW** |
+| "ricordati di eliminare i log" | **ALLOW** |
+
+**File:** `src/memory/negative-patterns.ts` - Supporto multilingue (9 lingue)
 
 ---
 
@@ -463,245 +250,17 @@ sqlite3 ~/.true-mem/memory.db "UPDATE memory_units SET status='deleted' WHERE id
 
 ## Release Workflow (GitHub Actions)
 
-### ⚠️ REGOLA CRITICA
+### REGOLA CRITICA
 
-**PRIMA di pushare per un release, fare SEMPRE bump versione con messaggio descrittivo:**
-
-```bash
-npm version patch -m "release: v%s - <FEATURE_NAME>"   # per bug fix
-npm version minor -m "release: v%s - <FEATURE_NAME>"   # per nuove feature  
-npm version major -m "release: v%s - <FEATURE_NAME>"   # per breaking changes
-```
-
-**Sostituire `<FEATURE_NAME>` con la feature/fix principale di quel release.**
-
-**Esempi:**
-- `npm version patch -m "release: v%s - list-memories command"`
-- `npm version patch -m "release: v%s - fix circular import"`
-- `npm version minor -m "release: v%s - multi-language support"`
-
-Il workflow si attiva SOLO quando `package.json` cambia (versione nuova).
-
-**Automazione**: Push su main con versione nuova → npm publish + GitHub Release automatici
-
-### File
-`.github/workflows/release.yml`
-
-### Daily Workflow
+**PRIMA di pushare per un release:**
 
 ```bash
-# 1. Modifica codice
-# 2. Commit
-git add . && git commit -m "fix: descrizione"
-
-# 3. Bump versione
-npm version patch   # o minor / major
-
-# 4. Push
-git push origin main
-
-# 5. GitHub Action fa tutto:
-#    → Pubblica su npm
-#    → Crea GitHub Release con tag v1.0.x
+npm version patch -m "release: v%s - <FEATURE_NAME>"
+npm version minor -m "release: v%s - <FEATURE_NAME>"
+npm version major -m "release: v%s - <FEATURE_NAME>"
 ```
 
-### Come verificare successo
-
-| Dove | Cosa controllare |
-|------|------------------|
-| **GitHub Actions** | https://github.com/rizal72/true-mem/actions → verde = OK |
-| **npm** | https://www.npmjs.com/package/true-mem → versione aggiornata |
-| **GitHub Releases** | https://github.com/rizal72/true-mem/releases → nuova release |
-| **Notifiche GitHub** | Email/Notifiche se watch abilitato |
-
-### Autenticazione npm
-
-**NPM_TOKEN come GitHub Secret** (non OIDC - non funziona):
-1. Genera automation token su npmjs.com
-2. Aggiungi come secret: `Settings → Secrets → Actions → NPM_TOKEN`
-3. Il workflow usa `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`
-
----
-
-## Toast Notification
-
-Il toast appare **a tutte le sessioni** (nuove e continuate), 2s dopo l'avvio di OpenCode.
-
-**Implementazione** (`src/index.ts`):
-- Toast nel corpo del plugin (non su `session.created`)
-- Delay 2s per far stabilizzare UI
-- Versione letta con `findPackageJsonUp()` (come OMO-slim)
-
-**Nota**: OpenCode TUI supporta solo UN toast alla volta (l'ultimo sovrascrive).
-
----
-
-## Meta-Command Detection (v1.2.0-rc.0+)
-
-**Problema:** Loop infinito quando si chiede di cancellare una memoria usando il suo pattern (es. "ho capito che..."). La richiesta veniva salvata come nuova memoria.
-
-**Soluzione:** Pattern `MEMORY_COMMAND_PATTERNS` che rilevano comandi diretti al sistema memoria.
-
-| Pattern | Azione |
-|---------|--------|
-| "cancelliamo questa memoria: ho capito X" | **BLOCK** - comando al sistema |
-| "ho imparato come cancellare file" | **ALLOW** - no keyword "memoria" |
-| "ricordati di eliminare i log" | **ALLOW** - override esplicito |
-
-**Edge Cases:**
-| Input | Risultato | Spiegazione |
-|-------|-----------|-------------|
-| "I want to delete this memory" | **BLOCK** | Meta-command diretto |
-| "delete the memory about X" | **BLOCK** | Meta-command diretto |
-| "ricordati di cancellare questa memoria" | **ALLOW** | Override esplicito vince |
-| "ho capito come si cancellano le memorie" | **ALLOW** | Apprendimento, non comando |
-| "cancelliamo tutto" | **ALLOW** | Manca keyword "memoria" |
-
-**File:** `src/memory/negative-patterns.ts`
-- `MEMORY_COMMAND_PATTERNS` - Blocca comandi tipo "delete this memory"
-- `MEMORY_COMMAND_OVERRIDES` - Permette "remember to delete..."
-- `isMemoryMetaCommand()` - Logica di rilevamento
-- Supporto multilingue (9 lingue): IT, EN, ES, FR, DE, PT, NL, PL, TR
-
----
-
-## Memory Injection - Come Funziona
-
-### Quando vengono iniettate le memorie?
-
-**Risposta: OGNI VOLTA che c'è una nuova richiesta**, non solo all'inizio della sessione.
-
-**Hook utilizzato:** `experimental.chat.system.transform`
-- Chiamato da OpenCode **prima di ogni richiesta al modello**
-- Esegue injection in tempo reale nel system prompt
-
-**Flusso completo:**
-```
-Utente scrive messaggio → OpenCode prepara richiesta → 
-Hook transform eseguito → Memorie iniettate nel system → 
-Richiesta inviata al modello con memorie incluse
-```
-
-**Perché vedi memorie diverse in `list-memories`:**
-1. Durante la conversazione, il plugin estrae nuove memorie (quando la sessione diventa idle)
-2. Le memorie vengono salvate nel database
-3. Alla richiesta successiva, `experimental.chat.system.transform` le inietta
-4. `list-memories` mostra le memorie **attualmente iniettate** nell'ultimo prompt
-
-**Codice rilevante:**
-```typescript
-// src/adapters/opencode/index.ts:287-297
-'experimental.chat.system.transform': async (input, output) => {
-  log('experimental.chat.system.transform: Injecting all relevant memories');
-  
-  // Recupera TUTTE le memorie rilevanti (max 20)
-  const allMemories = injectionState.db.getMemoriesByScope(state.worktree, 20);
-  
-  // Salva nello stato globale per "list memories"
-  setLastInjectedMemories(allMemories);
-  
-  // Inietta nel system prompt
-  if (allMemories.length > 0) {
-    const wrappedContext = wrapMemories(allMemories, state.worktree, 'global');
-    // ... append to output.system
-  }
-}
-```
-
-**Metodo di selezione attuale:**
-- `getMemoriesByScope(worktree, 20)` ordina per **strength DESC**
-- **NON** per rilevanza semantica al contesto
-- Prende le 20 memorie con strength più alta, indipendentemente dal contenuto della richiesta
-
-**Nota su embeddings:**
-- Esiste `vectorSearch(queryText, worktree, limit)` che usa hybrid similarity
-- **NON è usato** per l'injection nel transform hook
-- Richiederebbe estrazione del contesto dalla conversazione
-- Vedi `docs/embeddings-implementation-plan.md` per piano di implementazione
-
----
-
-## Strategia di Selezione Memorie (Proposta)
-
-**Problema attuale:**
-Le 20 memorie vengono selezionate solo per **strength** (forza), ignorando:
-- Rilevanza al contesto della conversazione
-- Bilanciamento tra GLOBAL e PROJECT scope
-- Priorità delle diverse classificazioni
-
-**Proposta: Allocazione Dinamica con Scope Quotas**
-
-```
-Limite totale: 20 memorie (configurabile, vedi sotto)
-
-Scope Quotas (minimum guarantees - scalano proporzionalmente):
-├─ Min 30% GLOBAL (preferences, constraints, learning, procedural)
-├─ Min 30% PROJECT (decisions, semantic, episodic)
-└─ Max 40% flessibili (context-relevant da entrambi gli scope)
-
-Esempi di scaling:
-- Limite 20: 6 GLOBAL + 6 PROJECT + 8 flessibili
-- Limite 30: 9 GLOBAL + 9 PROJECT + 12 flessibili
-- Limite 15: 4 GLOBAL + 4 PROJECT + 7 flessibili
-
-Classification Priority:
-Tier 0: constraint (sempre inclusi, no limite - regole critiche)
-Tier 1: preference, decision (alta priorità)
-Tier 2: learning, procedural (media priorità)
-Tier 3: semantic, episodic (bassa priorità, dipende dal contesto)
-```
-
-**Vantaggi:**
-- **Scope protection**: GLOBAL preferences non annegano PROJECT context (min 30% ciascuno)
-- **Adattivo**: Funziona sia per nuovi utenti (poche memorie) che power user (tante)
-- **Scalabile**: I quotas si adattano automaticamente al limite configurato
-- **Qualità**: 20 memorie rilevanti > 30 memorie casuali
-- **Token stable**: Costo prevedibile, proporzionale al limite scelto
-
-**Esempi:**
-
-| Scenario | Risultato |
-|----------|-----------|
-| Nuovo utente (3 memorie) | Tutte incluse, nessuno spreco |
-| Power user, limite 20 (15 GLOBAL + 30 PROJECT) | 6 GLOBAL + 6 PROJECT + 8 flessibili |
-| Power user, limite 30 (15 GLOBAL + 30 PROJECT) | 9 GLOBAL + 9 PROJECT + 12 flessibili |
-| Query specifica ("fix database") | Memorie rilevanti prioritarie negli slot flessibili |
-
-**Implementazione:**
-- Vedi `docs/embeddings-implementation-plan.md` per piano dettagliato
-- Feature flag: `TRUE_MEM_EMBEDDINGS=1` per abilitare rilevanza semantica
-- Fallback: Se embeddings disabilitati, usa strength-based selection
-
----
-
-## Configurazione Limite Memorie
-
-**Default:** 20 memorie iniettate nel context
-
-**Personalizzazione:**
-```bash
-# Aggiungi al tuo ~/.bashrc, ~/.zshrc, o shell profile
-export TRUE_MEM_MAX_MEMORIES=25  # Aumenta a 25 per più contesto
-export TRUE_MEM_MAX_MEMORIES=15  # Diminuisci a 15 per risparmiare token
-export TRUE_MEM_MAX_MEMORIES=20  # Default (bilanciato)
-```
-
-**Linee guida:**
-
-| Caso d'uso | Limite consigliato | Motivazione |
-|------------|-------------------|-------------|
-| Nuovo utente (< 20 memorie) | 10-15 | Poche memorie, meno rumore |
-| Utente regolare (20-50 memorie) | 20 (default) | Bilanciamento qualità/costo |
-| Power user (50+ memorie) | 25-30 | Più contesto necessario |
-| Sensibile ai token | 10-15 | Minimizza i costi |
-| Massimo contesto | 30 | Limite superiore sicuro |
-
-**Trade-off:**
-- **Limite basso (10-15)**: Costo token ridotto, ma può perdere memorie rilevanti
-- **Default (20)**: Bilanciamento ottimale per la maggior parte degli utenti
-- **Limite alto (25-30)**: Più contesto, ma costo token più alto (~25-50% in più)
-
-**Nota:** Il limite è configurabile solo tramite environment variable. Richiede riavvio di OpenCode per avere effetto.
+**Automazione:** Push su main con versione nuova → npm publish + GitHub Release automatici
 
 ---
 
@@ -713,9 +272,8 @@ export TRUE_MEM_MAX_MEMORIES=20  # Default (bilanciato)
 
 ---
 
----
-
 ## Risorse
 
 - [PsychMem repo](https://github.com/muratg98/psychmem)
 - [oh-my-opencode-slim](~/Documents/_PROGETTI/oh-my-opencode-slim) - Plugin riferimento
+- [CHANGELOG.md](./CHANGELOG.md) - Storico modifiche completo
