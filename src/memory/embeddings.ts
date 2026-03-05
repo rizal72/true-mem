@@ -130,6 +130,7 @@ export async function getSimilarity(text1: string, text2: string): Promise<numbe
 
   // If high confidence from Jaccard, return immediately
   if (jaccardScore > 0.7) {
+    log(`Similarity: Jaccard fast path (${jaccardScore.toFixed(3)} > 0.7)`);
     return jaccardScore;
   }
 
@@ -138,6 +139,7 @@ export async function getSimilarity(text1: string, text2: string): Promise<numbe
   
   if (!embeddingService.isEnabled()) {
     // Fallback: Jaccard only
+    log(`Similarity: Jaccard only (${jaccardScore.toFixed(3)}, embeddings disabled)`);
     return jaccardScore;
   }
 
@@ -146,14 +148,17 @@ export async function getSimilarity(text1: string, text2: string): Promise<numbe
 
     if (embeddings && embeddings.length === 2 && embeddings[0] && embeddings[1]) {
       const cosineScore = cosineSimilarityArrays(embeddings[0], embeddings[1]);
+      const blendedScore = (jaccardScore * 0.3) + (cosineScore * 0.7);
       // Blend Jaccard and cosine (weighted average)
-      return (jaccardScore * 0.3) + (cosineScore * 0.7);
+      log(`Similarity: HYBRID - Jaccard: ${jaccardScore.toFixed(3)}, Cosine: ${cosineScore.toFixed(3)}, Blended: ${blendedScore.toFixed(3)}`);
+      return blendedScore;
     }
   } catch (error) {
     log('Hybrid similarity failed, falling back to Jaccard:', error);
   }
 
   // Fallback: Jaccard only
+  log(`Similarity: Jaccard fallback (${jaccardScore.toFixed(3)})`);
   return jaccardScore;
 }
 
