@@ -8,8 +8,35 @@ import { Worker } from 'worker_threads';
 import { log } from '../logger.js';
 import * as path from 'path';
 import * as url from 'url';
+import * as fs from 'fs';
 
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
+// Resolve worker path from package root (bundler-agnostic)
+function resolveWorkerPath(): string {
+  const bundleDir = path.dirname(url.fileURLToPath(import.meta.url));
+  
+  // Walk up to find package.json
+  let current = bundleDir;
+  const maxDepth = 10;
+  let depth = 0;
+  
+  while (current !== '/' && depth < maxDepth) {
+    const pkgPath = path.join(current, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      // Found package root, now build worker path
+      const workerPath = path.join(current, 'dist', 'memory', 'embedding-worker.js');
+      
+      if (!fs.existsSync(workerPath)) {
+        throw new Error(`Worker file not found at: ${workerPath}`);
+      }
+      
+      return workerPath;
+    }
+    current = path.dirname(current);
+    depth++;
+  }
+  
+  throw new Error('Could not resolve worker path: package root not found');
+}
 
 export class EmbeddingService {
   private static instance: EmbeddingService;
@@ -54,9 +81,8 @@ export class EmbeddingService {
       });
 
       // Create worker thread for embeddings
-      // FIX: Use import.meta.url to resolve correct path in bundled environment
-      const currentDir = path.dirname(url.fileURLToPath(import.meta.url));
-      const workerPath = path.join(currentDir, 'embedding-worker.js');
+      // FIX: Resolve from package root (bundler-agnostic)
+      const workerPath = resolveWorkerPath();
       
       log('Spawning worker at path:', workerPath);
       

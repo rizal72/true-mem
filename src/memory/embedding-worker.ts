@@ -1,13 +1,23 @@
 /**
  * Worker thread for embedding computation
  * Isolates Transformers.js from main thread
+ * Uses eval('import()') hack to avoid bun bundling issues
  */
 
 import { parentPort, workerData } from 'worker_threads';
-import { pipeline, env } from '@huggingface/transformers';
+
+// FIX: Use dynamic import via eval to avoid bun bundling issues with native .node modules
+let pipeline: any;
+let env: any;
+
+async function loadTransformers() {
+  const { pipeline: p, env: e } = await eval("import('@huggingface/transformers')");
+  pipeline = p;
+  env = e;
+}
 
 // Configure for stability
-if (env.backends?.onnx?.wasm) {
+if (env?.backends?.onnx?.wasm) {
   env.backends.onnx.wasm.numThreads = 2;
 }
 env.cacheDir = process.env.HOME ? `${process.env.HOME}/.true-mem/models` : '~/.true-mem/models';
@@ -17,8 +27,9 @@ let memoryCheckInterval: ReturnType<typeof setInterval> | null = null; // FIX P1
 
 async function initialize() {
   try {
-    log('Initializing embedding model:', workerData.model);
-    log('Transformers.js env configured, cacheDir:', env.cacheDir);
+    log('Loading Transformers.js...');
+    await loadTransformers();
+    log('Transformers.js loaded, initializing model:', workerData.model);
     
     extractor = await pipeline('feature-extraction', workerData.model, {
       dtype: 'q8', // Quantized for memory efficiency
