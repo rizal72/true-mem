@@ -20,7 +20,7 @@ import { setLastInjectedMemories, getLastInjectedMemories } from '../../state.js
 import { getExtractionQueue } from '../../extraction/queue.js';
 import { registerShutdownHandler } from '../../shutdown.js';
 import { parseConversationLines } from '../../memory/role-patterns.js';
-import { getAtomicMemories, wrapMemories, type InjectionState } from './injection.js';
+import { getAtomicMemories, wrapMemories, selectMemoriesForInjection, type InjectionState } from './injection.js';
 import { getVersion } from '../../utils/version.js';
 import { EmbeddingService } from '../../memory/embeddings-nlp.js';
 
@@ -31,6 +31,57 @@ let pendingMessageEvent: { properties: unknown } | null = null;
 // Global extraction debounce to prevent rapid-fire duplicate extractions
 let lastExtractionTime = 0;
 const MIN_EXTRACTION_INTERVAL = 2000; // 2 seconds minimum between extractions
+
+// Cache for context extraction (avoid repeated API calls)
+const contextCache = new Map<string, { context: string; timestamp: number }>();
+const CACHE_TTL = 5000; // 5 seconds
+
+/**
+ * Extract query context from conversation messages with caching
+ * Used for semantic memory retrieval when embeddings are enabled
+ */
+async function extractQueryContextFromInput(
+  client: PluginInput['client'],
+  sessionId: string | undefined
+): Promise<string> {
+  if (!sessionId) return '';
+  
+  // Check cache
+  const cached = contextCache.get(sessionId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    log('Using cached context');
+    return cached.context;
+  }
+  
+  try {
+    // Use the same API as processSessionIdle
+    const response = await client.session.messages({ path: { id: sessionId } });
+    if (response.error || !response.data) return '';
+    
+    const messages = response.data;
+    const recentMessages = messages.slice(-5); // Last 5 messages
+    
+    const contextParts: string[] = [];
+    for (const msg of recentMessages) {
+      for (const part of msg.parts) {
+        if (part.type === 'text' && 'text' in part) {
+          contextParts.push((part as { text: string }).text);
+        }
+      }
+    }
+    
+    const fullContext = contextParts.join(' | ');
+    const truncatedContext = fullContext.slice(-500); // Truncate to 500 chars
+    
+    // Update cache
+    contextCache.set(sessionId, { context: truncatedContext, timestamp: Date.now() });
+    
+    return truncatedContext;
+  } catch (error) {
+    log('Failed to extract query context:', error);
+    return '';
+  }
+}
 
 /**
  * Check if enough time has passed since last extraction
@@ -288,13 +339,25 @@ export async function createTrueMemoryPlugin(
       log('experimental.chat.system.transform: Injecting all relevant memories');
 
       try {
-        const injectionState: InjectionState = {
-          db: state.db,
-          worktree: state.worktree,
-        };
-
-        // Retrieve ALL relevant memories for current project (both user-level and project-level)
-        const allMemories = injectionState.db.getMemoriesByScope(state.worktree, 20);
+        // Extract context from conversation (convert null to undefined for type safety)
+        const sessionId = input.sessionID ?? state.currentSessionId ?? undefined;
+        const queryContext = await extractQueryContextFromInput(
+          state.client,
+          sessionId
+        );
+        
+        // Check if embeddings are enabled
+        const embeddingsEnabled = process.env.TRUE_MEM_EMBEDDINGS === '1';
+        
+        // Use smart selection instead of getMemoriesByScope
+        const allMemories = await selectMemoriesForInjection(
+          state.db,
+          state.worktree,
+          queryContext,
+          embeddingsEnabled,
+          state.config.maxMemories,
+          state.config.maxTokensForMemories
+        );
 
         // Save to global state for "list memories" feature
         setLastInjectedMemories(allMemories);
@@ -309,7 +372,7 @@ export async function createTrueMemoryPlugin(
 
           output.system = systemArray;
 
-          log(`Global injection: ${allMemories.length} memories injected into system prompt`);
+          log(`Global injection: ${allMemories.length} memories injected into system prompt [embeddings=${embeddingsEnabled}]`);
         }
       } catch (error) {
         log(`Global injection failed: ${error}`);
