@@ -37,7 +37,34 @@ const contextCache = new Map<string, { context: string; timestamp: number }>();
 const CACHE_TTL = 5000; // 5 seconds
 
 // Persist worktree across plugin restarts (OpenCode lifecycle issue)
-let _persistedWorktree: string | null = null;
+// Using file-based persistence because module-level variables don't survive plugin reloads
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+const WORKTREE_CACHE_FILE = join(homedir(), '.true-mem', '.worktree-cache');
+
+function getPersistedWorktree(): string | null {
+  try {
+    if (existsSync(WORKTREE_CACHE_FILE)) {
+      const cached = readFileSync(WORKTREE_CACHE_FILE, 'utf-8').trim();
+      if (cached && cached !== '/' && cached !== '\\' && cached.length > 0) {
+        return cached;
+      }
+    }
+  } catch (err) {
+    // Silently ignore - will use ctx values instead
+  }
+  return null;
+}
+
+function setPersistedWorktree(worktree: string): void {
+  try {
+    writeFileSync(WORKTREE_CACHE_FILE, worktree, 'utf-8');
+  } catch (err) {
+    // Silently ignore - non-critical feature
+  }
+}
 
 /**
  * Extract query context from conversation messages with caching
@@ -187,13 +214,22 @@ export async function createTrueMemoryPlugin(
 
   // FIX: Persist worktree across plugin restarts (OpenCode lifecycle)
   // When server.instance.disposed fires, ctx.worktree becomes undefined on restart
-  const worktree = _persistedWorktree && isValidPath(_persistedWorktree)
-    ? _persistedWorktree
-    : isValidPath(ctx.worktree)
-      ? (_persistedWorktree = ctx.worktree, ctx.worktree)
-      : isValidPath(ctx.directory)
-        ? (_persistedWorktree = ctx.directory, ctx.directory)
-        : `unknown-project-${Date.now()}`;
+  // Use file-based persistence because module-level variables don't survive plugin reloads
+  const persistedWorktree = getPersistedWorktree();
+  let worktree: string;
+  
+  if (persistedWorktree && isValidPath(persistedWorktree)) {
+    worktree = persistedWorktree;
+    log(`Worktree restored from cache: ${worktree}`);
+  } else if (isValidPath(ctx.worktree)) {
+    worktree = ctx.worktree;
+    setPersistedWorktree(worktree);
+  } else if (isValidPath(ctx.directory)) {
+    worktree = ctx.directory;
+    setPersistedWorktree(worktree);
+  } else {
+    worktree = `unknown-project-${Date.now()}`;
+  }
   
   const state: TrueMemoryAdapterState = {
     db,
@@ -241,7 +277,10 @@ export async function createTrueMemoryPlugin(
           }
           break;
         case 'server.instance.disposed':
-          // OpenCode is disposing the server instance - worktree is preserved in _persistedWorktree
+          // OpenCode is disposing the server instance - persist worktree to file for next init
+          if (state.worktree && !state.worktree.startsWith('unknown-project')) {
+            setPersistedWorktree(state.worktree);
+          }
           log('Server instance disposed - worktree preserved for next init');
           break;
       }

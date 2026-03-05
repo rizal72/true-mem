@@ -119,8 +119,14 @@ process.on('SIGINT', gracefulShutdown);
 memoryCheckInterval = setInterval(() => { // FIX P1: Save interval reference
   const usage = process.memoryUsage();
   if (usage.heapUsed > 500 * 1024 * 1024) { // 500MB cap
-    process.send?.({ type: 'error', error: 'Memory limit exceeded' });
-    process.exit(1);
+    const heapUsedMB = Math.round(usage.heapUsed / 1024 / 1024);
+    const heapTotalMB = Math.round(usage.heapTotal / 1024 / 1024);
+    const rssMB = Math.round(usage.rss / 1024 / 1024);
+    
+    log(`WARNING: Memory limit exceeded - Heap: ${heapUsedMB}MB / ${heapTotalMB}MB, RSS: ${rssMB}MB`);
+    // NOT exiting - we want to observe the behavior instead of crashing
+    // process.send?.({ type: 'error', error: 'Memory limit exceeded' });
+    // process.exit(1);
   }
 }, 5000); // Check every 5 seconds
 

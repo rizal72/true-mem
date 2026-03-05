@@ -21,7 +21,7 @@ import type {
 import { DEFAULT_CONFIG } from '../config.js';
 import { createDatabase, type SqliteDatabase } from './sqlite-adapter.js';
 import { handleReconsolidation, isRelevant } from '../memory/reconsolidate.js';
-import { getSimilarity } from '../memory/embeddings.js';
+import { getSimilarity, getSimilarityBatch } from '../memory/embeddings.js';
 import { log } from '../logger.js';
 
 /**
@@ -627,7 +627,6 @@ export class MemoryDatabase {
 
     const rows = this.db.prepare(query).all(...params) as any[];
     const memories = rows.map(this.rowToMemoryUnit.bind(this));
-    log(`Debug: getMemoriesByScope returned ${memories.length} memories (worktree="${currentProject}", hasValidProject=${hasValidProject}, limit=${limit}, store=${store})`);
     return memories;
   }
 
@@ -671,16 +670,16 @@ export class MemoryDatabase {
     const rows = this.db.prepare(query).all(...params) as any[];
     const memories = rows.map(this.rowToMemoryUnit.bind(this));
 
-    // Calculate hybrid similarity (Jaccard + Embeddings) for each memory
-    const results = await Promise.all(
-      memories.map(async (memory) => {
-        const similarity = await getSimilarity(queryText, memory.summary);
-        return { memory, similarity };
-      })
-    );
+    // Calculate hybrid similarity (Jaccard + Embeddings) for each memory using batch
+    const pairs = memories.map(memory => ({ text1: queryText, text2: memory.summary }));
+    const similarities = await getSimilarityBatch(pairs);
 
     // Sort by similarity (descending) and return top-k
-    results.sort((a, b) => b.similarity - a.similarity);
+    const results = memories
+      .map((memory, i) => ({ memory, similarity: similarities[i] ?? 0 }))
+      .sort((a, b) => b.similarity - a.similarity);
+    
+    log(`vectorSearch: ${results.length} memories, top similarity: ${results[0]?.similarity.toFixed(3) ?? 'N/A'}`);
     return results.slice(0, limit).map((r) => r.memory);
   }
 
