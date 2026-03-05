@@ -86,6 +86,13 @@ export class EmbeddingService {
       return false;
     }
 
+    // CRITICAL: Check if Node.js is available
+    const nodeAvailable = await this.checkNodeAvailable();
+    if (!nodeAvailable) {
+      log('Node.js not available - NLP embeddings disabled. Please install Node.js to enable embeddings.');
+      return false;
+    }
+
     try {
       // Create promise BEFORE spawning worker (race condition)
       this.readyPromise = new Promise((resolve) => {
@@ -94,6 +101,12 @@ export class EmbeddingService {
 
       // Create Node.js child process for embeddings
       const workerPath = resolveWorkerPath();
+      
+      // Validate worker file exists before spawning
+      if (!fs.existsSync(workerPath)) {
+        log(`Worker file not found at: ${workerPath}. Run 'bun run build' first.`);
+        return false;
+      }
       
       log('Spawning Node.js worker at path:', workerPath);
       
@@ -127,11 +140,13 @@ export class EmbeddingService {
             this.recordFailure();
             pending.reject(new Error(m.error));
           }
-        } else if (m.type === 'ready') {
+        } else if (m.type === 'ready' && !this.ready) {
+          // MEDIUM: Guard against multiple 'ready' messages
           log('Embedding worker ready');
           this.ready = true;
           if (this.readyResolve) {
             this.readyResolve(true);
+            this.readyResolve = null; // Prevent multiple calls
           }
         } else if (m.type === 'error' && !m.requestId) {
           // Handle worker-level errors (not specific to a request)
@@ -153,6 +168,14 @@ export class EmbeddingService {
       // Handle worker exit
       this.worker.on('exit', (code, signal) => {
         log(`Embedding worker exited with code ${code}, signal: ${signal}`);
+        
+        // HIGH: Clean up pending requests on worker exit
+        for (const [requestId, pending] of this.pendingRequests) {
+          clearTimeout(pending.timeout);
+          pending.reject(new Error('Worker exited unexpectedly'));
+        }
+        this.pendingRequests.clear();
+        
         if (code !== 0) {
           this.recordFailure();
         }
@@ -235,6 +258,19 @@ export class EmbeddingService {
     return false;
   }
 
+  // CRITICAL: Check if Node.js is available before spawning
+  private async checkNodeAvailable(): Promise<boolean> {
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      await execAsync('node --version');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private recordFailure(): void {
     this.failureCount++;
     this.lastFailure = Date.now();
@@ -260,20 +296,14 @@ export class EmbeddingService {
       try {
         this.worker.send({ type: 'shutdown' });
         
+        // CRITICAL: Use setTimeout instead of busy-wait to avoid blocking event loop
         // Wait for worker to exit gracefully (max 2 seconds)
-        const startTime = Date.now();
-        while (Date.now() - startTime < 2000) {
-          if (this.worker.killed) break;
-          // Small delay to allow worker cleanup
-          const endTime = Date.now() + 50;
-          while (Date.now() < endTime) {} // Busy wait 50ms
-        }
-        
-        // If worker still exists, force kill
-        if (!this.worker.killed) {
-          log('Worker did not exit gracefully, forcing kill');
-          this.worker.kill('SIGTERM');
-        }
+        setTimeout(() => {
+          if (this.worker && !this.worker.killed) {
+            log('Worker did not exit gracefully, forcing kill');
+            this.worker.kill('SIGTERM');
+          }
+        }, 2000);
       } catch (err) {
         log('Error during worker cleanup:', err);
         // Force kill on error
