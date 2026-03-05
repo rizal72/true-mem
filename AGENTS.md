@@ -33,29 +33,32 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 | Branch | Scopo | Status |
 |--------|-------|--------|
 | `main` | Produzione (Jaccard only) | Stable v1.1.1 |
-| `NLP` | **Esperimento NLP** - Transformers.js v4 + embeddings ibridi | Testing locale |
+| `develop` | **Development** - Contextual scope detection, NLP embeddings (opzionale), nuove feature | Testing locale |
 
-**Esperimento NLP (Branch `NLP`):**
-- Branch isolato per testare embeddings semantici
-- Architettura ibrida: Jaccard (baseline) + Transformers.js v4 (opzionale)
+**Branch `develop`:**
+- Branch di sviluppo per nuove feature prima del merge in main
+- Include: contextual scope detection, hybrid embeddings (opzionale)
+- Architettura: Jaccard (sempre attivo) + Transformers.js v4 (opzionale via feature flag)
 - Feature flag: `TRUE_MEM_EMBEDDINGS=1` (unset/disabled = Jaccard-only)
 - Documentazione: `docs/nlp-embeddings-analysis.md`
-- **NON per rilascio** - Solo test locali
+- **NON per rilascio diretto** - Solo test locali, merge in main per release
 
-**Fix Applicati su NLP:**
-1. **Hybrid similarity consistency:** `database.ts:429` ora usa `getSimilarity()` invece di `jaccardSimilarity()` per reconsolidation
-2. **SIGINT handler:** Aggiunto handler per Ctrl+C nel worker thread
-3. **Graceful shutdown:** Worker cleanup via messaggio + timeout (2s) prima di force terminate
+**Fix Applicati su develop:**
+1. **Contextual scope detection:** Memorie user-level (preference, constraint, etc.) ora possono essere project-scoped basate sul contesto conversazione
+2. **Hybrid similarity consistency:** `database.ts:429` ora usa `getSimilarity()` invece di `jaccardSimilarity()` per reconsolidation
+3. **SIGINT handler:** Aggiunto handler per Ctrl+C nel worker thread
+4. **Graceful shutdown:** Worker cleanup via messaggio + timeout (2s) prima di force terminate
+5. **Env check fix:** `TRUE_MEM_EMBEDDINGS` deve essere esplicitamente `'1'` per attivare embeddings
 
-**Problemi Noti (NLP Branch):**
-- ⚠️ **Bun panic alla chiusura di OpenCode** - Crash C++ exception visibile nel terminale (stesso problema della versione precedente)
+**Problemi Noti (develop branch):**
+- ⚠️ **Bun panic alla chiusura di OpenCode** - Crash C++ exception visibile nel terminale quando embeddings attive
 - ⚠️ Embeddings usate solo in `tool.execute.before`, non nel retrieval globale delle memorie
 - ⚠️ Non testato in produzione
 
 **Workflow Raccomandato:**
 ```bash
-# Usa NLP branch ma con Jaccard-only (comportamento = main)
-git checkout NLP
+# Usa develop branch con Jaccard-only (comportamento = main)
+git checkout develop
 export TRUE_MEM_EMBEDDINGS=0  # o non settare
 bun run build
 
