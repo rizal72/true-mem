@@ -101,6 +101,9 @@ export class EmbeddingService {
         } else if (msg.type === 'error') {
           log('Embedding worker error:', msg.error);
           this.recordFailure();
+        } else if (msg.type === 'log') {
+          // Forward worker logs to file (avoid TUI pollution)
+          log(msg.message);
         }
       });
 

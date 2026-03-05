@@ -95,9 +95,10 @@ memoryCheckInterval = setInterval(() => { // FIX P1: Save interval reference
   }
 }, 5000); // Check every 5 seconds
 
-// Simple log function
+// Simple log function - send to parent instead of stdout to avoid TUI pollution
 function log(...args: any[]) {
-  console.log('[embedding-worker]', ...args);
+  const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  parentPort?.postMessage({ type: 'log', message: `[embedding-worker] ${message}` });
 }
 
 initialize();
