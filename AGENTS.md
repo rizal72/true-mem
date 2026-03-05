@@ -53,6 +53,7 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 6. **Env check fix:** `TRUE_MEM_EMBEDDINGS` deve essere esplicitamente `'1'` per attivare embeddings
 7. **Node.js Worker Solution:** Implementata soluzione ibrida Bun+Node.js per evitare Bun panic crash
 8. **Oracle Review Fixes:** Addressati tutti i problemi critici identificati da Oracle (Node.js check, busy-wait, pending cleanup, multiple ready guard)
+9. **Worktree Persistence:** Fix per worktree che diventa "unknown-project-{timestamp}" dopo il riavvio del plugin (persistenza in variabile modulo)
 
 **Problemi Noti (develop branch):**
 - ✅ **Bun panic risolto** - Implementata soluzione Node.js Worker (ONNX stabile)
