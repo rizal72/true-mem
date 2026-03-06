@@ -2,6 +2,31 @@
 
 All notable changes to True-Mem will be documented in this file.
 
+## [1.2.0-rc.0] - 2026-03-06
+
+### Hot-Reload Resilience
+
+**Fixed:**
+- Node.js worker path persistence survives hot-reload (#34ecbd3)
+- Debounce init (1s) prevents worker spawn thrashing (#56152e0)
+- Promise leak fix - orphan promises resolved correctly (#2a311fa)
+- Log rotation (1MB, 1 backup) prevents unbounded growth
+- Cleanup race condition fixed (worker ref before null)
+
+**Performance:**
+- Reduced debounce from 2s to 1s for faster worker init
+
+**Code Quality:**
+- @oracle code review passed - production ready
+- 0 HIGH issues, 3 MEDIUM (non-blocking), 3 LOW
+
+**Technical Details:**
+- `getEmbeddingsEnabled()` - Feature flag with config persistence
+- `getNodePath()` - Node.js binary path with hot-reload support
+- `initialize()` - Debounce wrapper with promise management
+- `_doInitialize()` - Worker spawn logic
+- Log rotation on every write, atomic rename
+
 ## [1.2.0-rc.0] - 2026-03-05
 
 ### Added - Hot-Reload Resilience

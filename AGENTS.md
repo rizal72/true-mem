@@ -21,14 +21,15 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 
 | Componente | Status |
 |------------|--------|
-| Build (bun) | OK - 140.72 KB |
+| Build (bun) | OK - 143.11 KB |
 | TypeCheck | OK - 0 errors |
 | Runtime | OK - Funzionante |
 | npm | Pubblicato 1.1.1 (main), rc in develop |
 | GitHub Actions | OK - NPM_TOKEN secret |
 | Toast | OK - Tutte le sessioni |
 | Meta-Command | OK - Previene loop infiniti |
-| Hot-Reload | OK - Embeddings sopravvivono ai restart |
+| Hot-Reload | ✅ FIXED - Node.js path persistence + debounce (1s) |
+| Log Rotation | ✅ OK - 1MB con 1 backup |
 
 ### Branch Attivi
 
@@ -107,9 +108,11 @@ Main Thread (Bun)
 - Graceful degradation to Jaccard
 
 **Hot-Reload Resilience:**
-- Env var saved to `~/.true-mem/config.json`
-- Config file used when env var undefined
-- Requires OpenCode restart to change settings
+- Node.js path persiste in `~/.true-mem/config.json`
+- Debounce init (1 secondo) previene spawn multipli
+- Promise leak fix - orfane risolte con `false`
+- Log rotation automatico (1MB, 1 backup)
+- Feature flag survives hot-reload
 
 **Feature Flag:**
 ```bash
