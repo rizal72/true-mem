@@ -60,6 +60,10 @@ export class EmbeddingService {
   // Single listener pattern: Map of pending requests with their resolve/reject callbacks
   private pendingRequests = new Map<string, { resolve: (value: number[][]) => void; reject: (reason?: any) => void; timeout: ReturnType<typeof setTimeout> }>();
 
+  // Debounce: prevent multiple rapid initialization attempts
+  private pendingInit: ReturnType<typeof setTimeout> | null = null;
+  private initResolve: ((value: boolean) => void) | null = null;
+
   // Circuit breaker: disable after 3 failures in 5 minutes
   private readonly CIRCUIT_BREAKER_THRESHOLD = 3;
   private readonly CIRCUIT_BREAKER_WINDOW = 5 * 60 * 1000; // 5 minutes
@@ -76,18 +80,45 @@ export class EmbeddingService {
   async initialize(): Promise<boolean> {
     // DEFENSIVE: Verify embeddings should be enabled
     // This prevents accidental initialization if called directly
-    const { getEmbeddingsEnabled } = await import('../config/feature-flags.js');
+    const { getEmbeddingsEnabled, getNodePath } = await import('../config/feature-flags.js');
     if (!getEmbeddingsEnabled()) {
       log('DEFENSIVE: initialize() called but embeddings disabled - aborting');
       return false;
     }
-    
+
     // Check circuit breaker BEFORE reset (prevents thrashing)
     if (this.isCircuitBreakerOpen()) {
       log('NLP embeddings circuit breaker open, skipping initialization');
       return false;
     }
-    
+
+    // Cancel any pending initialization (debounce)
+    if (this.pendingInit) {
+      clearTimeout(this.pendingInit);
+      this.pendingInit = null;
+    }
+
+    // Create promise that will resolve after debounce completes
+    this.initResolve = null;
+    const debouncePromise = new Promise<boolean>((resolve) => {
+      this.initResolve = resolve;
+    });
+
+    // Schedule initialization after 2 second debounce
+    this.pendingInit = setTimeout(async () => {
+      this.pendingInit = null;
+      const result = await this._doInitialize(getNodePath);
+      if (this.initResolve) {
+        this.initResolve(result);
+        this.initResolve = null;
+      }
+    }, 2000);
+
+    // Wait for debounced initialization to complete
+    return debouncePromise;
+  }
+
+  private async _doInitialize(getNodePath: () => string): Promise<boolean> {
     // Reset circuit breaker for fresh attempt
     this.failureCount = 0;
     this.lastFailure = 0;
@@ -116,8 +147,11 @@ export class EmbeddingService {
       
       log('Spawning Node.js worker at path:', workerPath);
       
+      // Get Node.js path (hot-reload resilient)
+      const nodePath = getNodePath();
+      
       // Use Node.js instead of Bun Worker for ONNX stability
-      this.worker = spawn('node', [workerPath], {
+      this.worker = spawn(nodePath, [workerPath], {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
         env: {
           ...process.env,
@@ -318,6 +352,9 @@ export class EmbeddingService {
     this.pendingRequests.clear();
 
     if (this.worker) {
+      // Save reference BEFORE nulling (fixes race condition)
+      const workerRef = this.worker;
+      
       // Send shutdown message to worker
       try {
         this.worker.send({ type: 'shutdown' });
@@ -325,16 +362,16 @@ export class EmbeddingService {
         // CRITICAL: Use setTimeout instead of busy-wait to avoid blocking event loop
         // Wait for worker to exit gracefully (max 2 seconds)
         setTimeout(() => {
-          if (this.worker && !this.worker.killed) {
+          if (workerRef && !workerRef.killed) {
             log('Worker did not exit gracefully, forcing kill');
-            this.worker.kill('SIGTERM');
+            workerRef.kill('SIGTERM');
           }
         }, 2000);
       } catch (err) {
         log('Error during worker cleanup:', err);
         // Force kill on error
         try {
-          this.worker?.kill('SIGKILL');
+          workerRef.kill('SIGKILL');
         } catch {}
       }
       this.worker = null;

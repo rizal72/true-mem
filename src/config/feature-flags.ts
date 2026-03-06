@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { execSync } from 'child_process';
 import { log } from '../logger.js';
 
 const CONFIG_DIR = join(homedir(), '.true-mem');
@@ -17,6 +18,7 @@ const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 interface PluginConfig {
   embeddingsEnabled: boolean;
+  nodePath?: string; // Absolute path to Node.js binary
   lastEnvCheck: string; // ISO timestamp
 }
 
@@ -37,8 +39,10 @@ export function getEmbeddingsEnabled(): boolean {
   if (envValue !== undefined) {
     const enabled = envValue === '1';
     
-    // Update config file for hot-reload scenarios
+    // Update config file for hot-reload scenarios (preserve nodePath)
+    const existingConfig = readConfig();
     saveConfig({ 
+      ...existingConfig,
       embeddingsEnabled: enabled, 
       lastEnvCheck: new Date().toISOString() 
     });
@@ -88,4 +92,65 @@ function saveConfig(config: PluginConfig): void {
     // Non-critical - log and continue
     log(`Config save error: ${err}`);
   }
+}
+
+/**
+ * Gets the absolute path to Node.js binary with hot-reload resilience.
+ * 
+ * Flow:
+ * 1. If process.env.TRUE_MEM_EMBEDDINGS is set → find node path, save to config
+ * 2. If process.env undefined (hot-reload) → read from config file
+ * 3. If not found → return 'node' (fallback, may fail)
+ * 
+ * @returns Absolute path to node binary or 'node' as fallback
+ */
+export function getNodePath(): string {
+  const envValue = process.env.TRUE_MEM_EMBEDDINGS;
+  
+  // 1. If env var is set, find and cache node path
+  if (envValue !== undefined) {
+    try {
+      const nodePath = execSync('which node', { encoding: 'utf-8' }).trim();
+      log(`Node.js path resolved: ${nodePath}`);
+      
+      // Update config with node path (preserve embeddingsEnabled)
+      const existingConfig = readConfig();
+      saveConfig({
+        ...existingConfig,
+        nodePath,
+        lastEnvCheck: new Date().toISOString()
+      });
+      
+      return nodePath;
+    } catch (err) {
+      log(`Failed to resolve node path: ${err}`);
+      return 'node'; // Fallback
+    }
+  }
+  
+  // 2. Hot-reload: read from config
+  const config = readConfig();
+  if (config.nodePath) {
+    log(`Node.js path from config: ${config.nodePath}`);
+    return config.nodePath;
+  }
+  
+  // 3. Fallback
+  log('Node.js path not found in config, using fallback "node"');
+  return 'node';
+}
+
+/**
+ * Read config file, returns default if not found/corrupted
+ */
+function readConfig(): PluginConfig {
+  if (existsSync(CONFIG_FILE)) {
+    try {
+      const configJson = readFileSync(CONFIG_FILE, 'utf-8');
+      return JSON.parse(configJson);
+    } catch {
+      // Ignore errors
+    }
+  }
+  return { embeddingsEnabled: false, lastEnvCheck: '' };
 }
