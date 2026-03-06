@@ -367,9 +367,11 @@ opencode
 Check if embeddings are active:
 
 ```bash
-# Look for "Mode: Hybrid (Jaccard + NLP Embeddings)" in logs
-tail -f ~/.true-mem/plugin-debug.log | grep "Mode:"
+# Look for "NLP embeddings initialized successfully" in logs
+tail -f ~/.true-mem/plugin-debug.log | grep "NLP embeddings"
 ```
+
+Note: The startup banner always shows "Mode: Jaccard Similarity" because embeddings initialize asynchronously (1s debounce + 2-3s model loading). The grep above confirms if embeddings actually initialized.
 
 ---
 
