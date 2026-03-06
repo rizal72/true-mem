@@ -367,14 +367,12 @@ opencode
 Check if embeddings are active:
 
 ```bash
-# Method 1: Check config file (most reliable)
+# Method 1: Check config file
 cat ~/.true-mem/config.json | grep embeddingsEnabled
 
-# Method 2: Check if embeddings flag is true in logs (hot-reload shows "from config: true")
-tail -f ~/.true-mem/plugin-debug.log | grep "Feature flag from config: true"
+# Method 2: Check logs for [embeddings=true] tag
+tail -f ~/.true-mem/plugin-debug.log | grep "\[embeddings=true\]"
 ```
-
-Note: The startup banner always shows "Mode: Jaccard Similarity" because embeddings initialize asynchronously (1s debounce + 2-3s model loading). During hot-reload, the worker may not spawn if restarts are rapid, but the config file confirms embeddings are enabled.
 
 ---
 
