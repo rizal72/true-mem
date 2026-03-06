@@ -99,6 +99,10 @@ export class EmbeddingService {
     }
 
     // Create promise that will resolve after debounce completes
+    // FIX: Resolve previous promise before creating new one to prevent orphan promises
+    if (this.initResolve) {
+      this.initResolve(false);
+    }
     this.initResolve = null;
     const debouncePromise = new Promise<boolean>((resolve) => {
       this.initResolve = resolve;
