@@ -8,7 +8,7 @@
  * Migration is idempotent - safe to run multiple times.
  */
 
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { log } from '../logger.js';
@@ -65,7 +65,20 @@ export function migrateIfNeeded(): void {
       writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
       log(`Migration: state.json created with embeddingsEnabled=${state.embeddingsEnabled}`);
       
-      // Delete old config.json
+      // Extract user config from old config (M1: preserve user custom values)
+      const userConfig = {
+        injectionMode: oldContent.injectionMode ?? DEFAULT_USER_CONFIG.injectionMode,
+        subagentMode: oldContent.subagentMode ?? DEFAULT_USER_CONFIG.subagentMode,
+        maxMemories: oldContent.maxMemories ?? DEFAULT_USER_CONFIG.maxMemories,
+      };
+      
+      // Atomic write: write to temp file first, then rename (M2: atomic operation)
+      const tempFile = `${NEW_CONFIG_FILE}.tmp`;
+      writeFileSync(tempFile, JSON.stringify(userConfig, null, 2));
+      renameSync(tempFile, NEW_CONFIG_FILE);
+      log(`Migration: new config.json created with user settings (atomic)`);
+      
+      // Delete old config.json AFTER new one is created
       unlinkSync(OLD_CONFIG_FILE);
       log('Migration: old config.json deleted');
     } catch (err) {
@@ -73,9 +86,11 @@ export function migrateIfNeeded(): void {
     }
   }
 
-  // 3. Create new config.json with defaults (if not exists)
+  // 3. Create new config.json with defaults (if not exists) - atomic write
   if (!existsSync(NEW_CONFIG_FILE)) {
-    writeFileSync(NEW_CONFIG_FILE, JSON.stringify(DEFAULT_USER_CONFIG, null, 2));
+    const tempFile = `${NEW_CONFIG_FILE}.tmp`;
+    writeFileSync(tempFile, JSON.stringify(DEFAULT_USER_CONFIG, null, 2));
+    renameSync(tempFile, NEW_CONFIG_FILE);
     log('Migration: new config.json created with defaults');
   } else {
     log('Migration: config.json already exists, preserving user settings');

@@ -101,14 +101,21 @@ export function loadConfig(): TrueMemUserConfig {
   }
   
   // Step 3: Override with environment variables (highest priority)
-  const injectionMode = parseInjectionMode(process.env.TRUE_MEM_INJECTION_MODE);
-  const subagentMode = parseSubAgentMode(process.env.TRUE_MEM_SUBAGENT_MODE);
-  const maxMemories = parseMaxMemories(process.env.TRUE_MEM_MAX_MEMORIES);
-  
+  // Track if env var was explicitly set to apply correct priority: ENV > FILE > DEFAULTS
+  const envInjectionMode = process.env.TRUE_MEM_INJECTION_MODE;
+  const envSubagentMode = process.env.TRUE_MEM_SUBAGENT_MODE;
+  const envMaxMemories = process.env.TRUE_MEM_MAX_MEMORIES;
+
   const config: TrueMemUserConfig = {
-    injectionMode: fileConfig.injectionMode ?? injectionMode,
-    subagentMode: fileConfig.subagentMode ?? subagentMode,
-    maxMemories: fileConfig.maxMemories ?? maxMemories,
+    injectionMode: envInjectionMode !== undefined
+      ? parseInjectionMode(envInjectionMode)
+      : (fileConfig.injectionMode ?? DEFAULT_USER_CONFIG.injectionMode),
+    subagentMode: envSubagentMode !== undefined
+      ? parseSubAgentMode(envSubagentMode)
+      : (fileConfig.subagentMode ?? DEFAULT_USER_CONFIG.subagentMode),
+    maxMemories: envMaxMemories !== undefined
+      ? parseMaxMemories(envMaxMemories)
+      : (fileConfig.maxMemories ?? DEFAULT_USER_CONFIG.maxMemories),
   };
   
   // Log the final config

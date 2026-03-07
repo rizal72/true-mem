@@ -99,8 +99,23 @@ export function getNodePath(): string {
   
   // 1. If env var is set, find and cache node path
   if (envValue !== undefined) {
+    let nodePath: string | null = null;
+    
+    // Cross-platform: try 'which' on Unix, 'where' on Windows
     try {
-      const nodePath = execSync('which node', { encoding: 'utf-8' }).trim();
+      const whichResult = execSync('which node', { encoding: 'utf-8' }).trim();
+      nodePath = whichResult || null;
+    } catch {
+      try {
+        // Windows: 'where' returns multiple lines, take first
+        const whereResult = execSync('where node', { encoding: 'utf-8' }).trim().split('\n')[0];
+        nodePath = whereResult || null;
+      } catch {
+        nodePath = null;
+      }
+    }
+    
+    if (nodePath) {
       log(`State: Node.js path resolved: ${nodePath}`);
       
       // Update state with node path (preserve embeddingsEnabled)
@@ -112,8 +127,8 @@ export function getNodePath(): string {
       });
       
       return nodePath;
-    } catch (err) {
-      log(`State: Failed to resolve node path: ${err}`);
+    } else {
+      log(`State: Failed to resolve node path, using fallback`);
       return 'node'; // Fallback
     }
   }
