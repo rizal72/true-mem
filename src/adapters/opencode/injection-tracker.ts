@@ -4,6 +4,7 @@
  */
 
 import { log } from '../../logger.js';
+import type { PluginInput } from '../../types.js';
 
 // Track injected sessions (sessionId → injected)
 const injectedSessions = new Map<string, boolean>();
@@ -96,4 +97,38 @@ export function getTrackerStats(): {
     injectedCount: injected,
     pendingCount: pending,
   };
+}
+
+/**
+ * Check if a resumed session already has memory context injected
+ * Returns false if memory context is already present (skip injection)
+ * Returns true if no memory context found (should inject)
+ */
+export async function shouldInjectResumedSession(
+  client: PluginInput['client'],
+  sessionId: string
+): Promise<boolean> {
+  try {
+    const response = await client.session.messages({ path: { id: sessionId } });
+    if (response.error || !response.data) return true; // Safe default
+    
+    // Check if any message already contains true_memory_context
+    for (const msg of response.data) {
+      for (const part of msg.parts) {
+        if (part.type === 'text' && 'text' in part) {
+          const text = (part as { text: string }).text;
+          if (text.includes('<true_memory_context')) {
+            log(`Resumed session already has memory context`);
+            return false;
+          }
+        }
+      }
+    }
+    
+    // No memory context found, should inject
+    return true;
+  } catch (error) {
+    log(`Failed to check resumed session: ${error}`);
+    return true; // Safe default: inject
+  }
 }

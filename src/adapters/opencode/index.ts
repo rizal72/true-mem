@@ -27,7 +27,8 @@ import {
   markSessionCreated, 
   hasInjected, 
   markInjected, 
-  ensureSessionTracked 
+  ensureSessionTracked,
+  shouldInjectResumedSession 
 } from './injection-tracker.js';
 
 // Debounce state for message.updated events
@@ -355,6 +356,13 @@ export async function createTrueMemoryPlugin(
         return;
       }
 
+      // NEW: Check sub-agent mode config
+      const subAgentMode = state.config.opencode.injection?.subAgentMode ?? 1;
+      if (subAgentMode === 0) {
+        log('Sub-agent injection disabled by config');
+        return;
+      }
+
       // Extract prompt from output args
       const outputWithArgs = output as { args: { prompt?: string } };
       const originalPrompt = outputWithArgs.args?.prompt;
@@ -410,6 +418,13 @@ export async function createTrueMemoryPlugin(
       if (injectionMode === 0 && sessionId) {
         if (hasInjected(sessionId)) {
           log(`Skipping injection: already injected for session ${sessionId.slice(0, 8)}...`);
+          return;
+        }
+        
+        // Check if this is a resumed session that already has memory context
+        const shouldInject = await shouldInjectResumedSession(state.client, sessionId);
+        if (!shouldInject) {
+          log(`Skipping injection: resumed session already has memory context`);
           return;
         }
       }

@@ -2,6 +2,28 @@
 
 All notable changes to True-Mem will be documented in this file.
 
+## [1.3.0] - 2026-03-07
+
+### Added
+- **Phase 2: Session Resume Detection**
+  - Detects when user resumes session with `opencode -c`
+  - Skips duplicate injection if memory context already present
+  - New function `shouldInjectResumedSession()` in injection-tracker.ts
+  
+- **Phase 3: Sub-Agent Optimization**
+  - `TRUE_MEM_SUBAGENT_MODE` config now fully functional
+  - 0 = DISABLED - Skip memory injection in task/background_task
+  - 1 = ENABLED (default) - Inject into sub-agents
+  - Saves tokens when sub-agents don't need full context
+
+### Changed
+- `tool.execute.before` hook now respects `subAgentMode` config
+- `experimental.chat.system.transform` hook checks for resumed sessions
+
+### Technical
+- Updated injection-tracker.ts with resume detection logic
+- Modified index.ts hook implementations for Phase 2 and 3
+
 ## [1.2.0-rc.0] - 2026-03-07
 
 ### Added

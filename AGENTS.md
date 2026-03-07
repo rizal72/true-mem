@@ -15,7 +15,7 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 
 ## CURRENT STATUS
 
-**Aggiornamento**: 05/03/2026 - v1.2.0-rc.0 - Hot-reload resilience
+**Aggiornamento**: 07/03/2026 - v1.3.0 - Token Optimization Complete
 
 ### Stato Implementazione
 
@@ -30,7 +30,9 @@ OPENCODE_CFG  = ~/.config/opencode/opencode.jsonc
 | Meta-Command | OK - Previene loop infiniti |
 | Hot-Reload | ✅ FIXED - Node.js path persistence + debounce (1s) |
 | Log Rotation | ✅ OK - 1MB con 1 backup |
-| Injection Mode | v1.2.0-rc.0 - Implemented |
+| Injection Mode | ✅ v1.3.0 - Phase 1+2+3 Complete |
+| Session Resume | ✅ Phase 2 - Detect resumed sessions |
+| Sub-Agent Mode | ✅ Phase 3 - Configurable sub-agent injection |
 
 ### Branch Attivi
 
@@ -154,7 +156,7 @@ export TRUE_MEM_MAX_MEMORIES=15  # Meno token
 
 ### Injection Mode Configuration
 
-**New in v1.2.0**: Configurable injection strategy to reduce token usage.
+**New in v1.2.0 (Phase 1)**: Configurable injection strategy to reduce token usage.
 
 | Mode | Value | Behavior | Token Savings |
 |------|-------|----------|---------------|
@@ -164,26 +166,30 @@ export TRUE_MEM_MAX_MEMORIES=15  # Meno token
 **Environment Variables:**
 
 ```bash
-# Injection mode
+# Injection mode (Phase 1)
 # 0 = SESSION_START - Inject only at session start (default, recommended)
 # 1 = ALWAYS - Inject on every prompt (legacy, higher token cost)
 export TRUE_MEM_INJECTION_MODE=0
 
-# Sub-agent injection
+# Sub-agent injection (Phase 3)
 # 0 = DISABLED - Don't inject into task/background_task prompts
 # 1 = ENABLED - Inject into sub-agents (default)
 export TRUE_MEM_SUBAGENT_MODE=1
 ```
 
-**Default Behavior (mode=0):**
-- First prompt in session → inject memories
-- Subsequent prompts → skip (use cached context)
+**Phase 1 - Injection Mode:**
+- Default (mode=0): First prompt in session → inject memories, subsequent prompts → skip (use cached context)
+- Legacy (mode=1): Every prompt receives full memory context
+
+**Phase 2 - Session Resume Detection:**
+- Detects when a session resumes after being paused (worktree unchanged, recent timestamp)
+- Skips injection if context already present in conversation history
 - Token savings: ~76% per session
 
-**Legacy Behavior (mode=1):**
-- Every prompt receives full memory context
-- Use for maximum context awareness
-- Higher token cost
+**Phase 3 - Sub-Agent Mode:**
+- Controls whether memories are injected into task/background_task prompts
+- Useful to reduce token usage when sub-agents don't need project context
+- Default: ENABLED (injects into sub-agents)
 
 ---
 
