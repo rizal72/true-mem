@@ -120,6 +120,22 @@ export TRUE_MEM_EMBEDDINGS=1  # Enable embeddings
 export TRUE_MEM_EMBEDDINGS=0  # Disable (default)
 ```
 
+### Sub-Agent Memory Injection
+
+True-Mem optimizes token usage by injecting fewer memories into sub-agent sessions:
+
+| Context | Max Memories | Max Tokens | Classifications |
+|---------|--------------|------------|-----------------|
+| Main session | 20 (configurable) | 4000 | All |
+| Sub-agent | 10 | 1000 | `preference`, `constraint` only |
+
+Sub-agents are detected by session ID containing `-task-`.
+
+**Disable sub-agent injection:**
+```bash
+export TRUE_MEM_INJECT_SUBAGENTS=0
+```
+
 ---
 
 ## Memory Injection

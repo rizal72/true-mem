@@ -393,6 +393,16 @@ export async function createTrueMemoryPlugin(
       try {
         // Extract context from conversation (convert null to undefined for type safety)
         const sessionId = input.sessionID ?? state.currentSessionId ?? undefined;
+        
+        // Check if it's a sub-agent session
+        const isSubAgent = sessionId && isSubAgentSession(sessionId);
+        
+        // Skip if sub-agent injection disabled via env var
+        if (isSubAgent && process.env.TRUE_MEM_INJECT_SUBAGENTS === '0') {
+          log('Skipping injection: sub-agent injection disabled via env');
+          return;
+        }
+        
         const queryContext = await extractQueryContextFromInput(
           state.client,
           sessionId
@@ -401,21 +411,30 @@ export async function createTrueMemoryPlugin(
         // Check if embeddings are enabled
         const embeddingsEnabled = process.env.TRUE_MEM_EMBEDDINGS === '1';
         
+        // Different parameters for sub-agents
+        const maxMemories = isSubAgent ? 10 : state.config.maxMemories;
+        const maxTokens = isSubAgent ? 1000 : state.config.maxTokensForMemories;
+        
         // Use smart selection instead of getMemoriesByScope
         const allMemories = await selectMemoriesForInjection(
           state.db,
           state.worktree,
           queryContext,
           embeddingsEnabled,
-          state.config.maxMemories,
-          state.config.maxTokensForMemories
+          maxMemories,
+          maxTokens
         );
+        
+        // Filter for sub-agents: only preference + constraint
+        const memoriesToInject = isSubAgent
+          ? allMemories.filter(m => ['preference', 'constraint'].includes(m.classification))
+          : allMemories;
 
         // Save to global state for "list memories" feature
-        setLastInjectedMemories(allMemories);
+        setLastInjectedMemories(memoriesToInject);
 
-        if (allMemories.length > 0) {
-          const wrappedContext = wrapMemories(allMemories, state.worktree, 'global');
+        if (memoriesToInject.length > 0) {
+          const wrappedContext = wrapMemories(memoriesToInject, state.worktree, 'global');
 
           // Handle system as string[] - append to the last element
           const systemArray = Array.isArray(output.system) ? output.system : [output.system];
@@ -424,7 +443,9 @@ export async function createTrueMemoryPlugin(
 
           output.system = systemArray;
 
-          log(`Global injection: ${allMemories.length} memories injected into system prompt [embeddings=${embeddingsEnabled}]`);
+          log(`Global injection: ${memoriesToInject.length} memories injected into system prompt [embeddings=${embeddingsEnabled}, subAgent=${isSubAgent}]`);
+        } else if (isSubAgent) {
+          log(`Sub-agent session: no preference/constraint memories to inject (from ${allMemories.length} candidates)`);
         }
       } catch (error) {
         log(`Global injection failed: ${error}`);
