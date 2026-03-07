@@ -424,6 +424,7 @@ export async function createTrueMemoryPlugin(
         // Check if this is a resumed session that already has memory context
         const shouldInject = await shouldInjectResumedSession(state.client, sessionId);
         if (!shouldInject) {
+          markInjected(sessionId); // Mark immediately to prevent race condition
           log(`Skipping injection: resumed session already has memory context`);
           return;
         }

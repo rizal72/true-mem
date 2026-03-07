@@ -108,16 +108,36 @@ export async function shouldInjectResumedSession(
   client: PluginInput['client'],
   sessionId: string
 ): Promise<boolean> {
+  const TIMEOUT_MS = 3000;
+  const MAX_MESSAGES_TO_CHECK = 10;
+  
   try {
-    const response = await client.session.messages({ path: { id: sessionId } });
-    if (response.error || !response.data) return true; // Safe default
+    // M1: Add timeout wrapper (3 seconds) for API call
+    const response = await Promise.race([
+      client.session.messages({ path: { id: sessionId } }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('API timeout')), TIMEOUT_MS)
+      )
+    ]) as Awaited<ReturnType<typeof client.session.messages>>;
     
-    // Check if any message already contains true_memory_context
-    for (const msg of response.data) {
+    // M4: Add validation that response.data is an array
+    const responseData = (response as { data?: unknown }).data;
+    if (!responseData || !Array.isArray(responseData)) {
+      log('Invalid response from session.messages API');
+      return true; // Safe default: inject
+    }
+    
+    // M2: Only check first N messages (memory context is at session start)
+    const messagesToCheck = responseData.slice(0, MAX_MESSAGES_TO_CHECK);
+    
+    // M3: Improve tag detection with regex pattern that checks both opening and closing tags
+    const MEMORY_CONTEXT_PATTERN = /<true_memory_context[^>]*>[\s\S]*?<\/true_memory_context>/;
+    
+    for (const msg of messagesToCheck) {
       for (const part of msg.parts) {
         if (part.type === 'text' && 'text' in part) {
           const text = (part as { text: string }).text;
-          if (text.includes('<true_memory_context')) {
+          if (MEMORY_CONTEXT_PATTERN.test(text)) {
             log(`Resumed session already has memory context`);
             return false;
           }
