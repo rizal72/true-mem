@@ -7,7 +7,8 @@
  * OpenCode plugin hot-reload creates isolated context without env var inheritance.
  * This module bridges the gap by persisting env var values to state file.
  * 
- * Priority: process.env → state file → false (default)
+ * For embeddingsEnabled, also checks user config (config.json) as fallback:
+ * Priority: process.env → user config (config.json) → state file → false (default)
  * 
  * State file: ~/.true-mem/state.json
  */
@@ -18,23 +19,20 @@ import { homedir } from 'os';
 import { execSync } from 'child_process';
 import { log } from '../logger.js';
 import type { TrueMemState } from '../types/config.js';
+import { DEFAULT_STATE } from '../types/config.js';
+import { getEmbeddingsEnabledFromConfig } from './config.js';
 
 const CONFIG_DIR = join(homedir(), '.true-mem');
 const STATE_FILE = join(CONFIG_DIR, 'state.json');
-
-const DEFAULT_STATE: TrueMemState = {
-  embeddingsEnabled: false,
-  lastEnvCheck: null,
-  nodePath: null,
-};
 
 /**
  * Reads embeddings feature flag with hot-reload resilience.
  * 
  * Flow:
  * 1. If process.env.TRUE_MEM_EMBEDDINGS is set → use it, save to state
- * 2. If process.env undefined (hot-reload) → read from state file
- * 3. If no state → default to false
+ * 2. If process.env undefined → check user config (config.json)
+ * 3. If user config undefined → read from state file (hot-reload)
+ * 4. If no state → default to false
  * 
  * @returns true if embeddings enabled, false otherwise
  */
@@ -57,8 +55,23 @@ export function getEmbeddingsEnabled(): boolean {
     return enabled;
   }
 
-  // 2. process.env undefined → we're in hot-reload, read from state file
-  log('State: env var undefined (hot-reload), reading from state.json');
+  // 2. process.env undefined → check user config (config.json)
+  log('State: env var undefined, checking user config (config.json)');
+  const userConfigEnabled = getEmbeddingsEnabledFromConfig();
+  if (userConfigEnabled !== DEFAULT_STATE.embeddingsEnabled) {
+    // Update state file to persist user config choice
+    const existingState = loadState();
+    saveState({
+      ...existingState,
+      embeddingsEnabled: userConfigEnabled,
+      lastEnvCheck: new Date().toISOString()
+    });
+    log(`State: User config embeddingsEnabled=${userConfigEnabled}`);
+    return userConfigEnabled;
+  }
+  
+  // 3. User config not set → read from state file (hot-reload scenario)
+  log('State: user config not set, reading from state.json');
   
   if (existsSync(STATE_FILE)) {
     try {
@@ -79,7 +92,7 @@ export function getEmbeddingsEnabled(): boolean {
     }
   }
 
-  // 3. Default: embeddings disabled
+  // 4. Default: embeddings disabled
   log('State: no state.json found, using default: embeddings disabled');
   return false;
 }

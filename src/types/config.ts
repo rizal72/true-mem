@@ -22,6 +22,7 @@ export interface TrueMemUserConfig {
   injectionMode: InjectionMode;
   subagentMode: SubAgentMode;
   maxMemories: number;
+  embeddingsEnabled: boolean;
 }
 
 /**
@@ -41,6 +42,7 @@ export const DEFAULT_USER_CONFIG: TrueMemUserConfig = {
   injectionMode: 0,      // SESSION_START
   subagentMode: 1,       // ENABLED
   maxMemories: 20,
+  embeddingsEnabled: false,
 };
 
 /**

@@ -28,26 +28,50 @@ const MIGRATION_DONE_FILE = join(CONFIG_DIR, '.migrated');
  * Run migration if needed (idempotent)
  * 
  * Migration steps:
- * 1. If .migrated marker exists → already migrated, skip
- * 2. If old config.json exists → migrate to state.json
- * 3. Create new config.json with defaults
- * 4. Create .migrated marker
+ * 1. If .migrated marker exists + both files exist → skip (already migrated)
+ * 2. If .migrated exists but files missing → recreate with defaults
+ * 3. If no marker → do full migration from old config.json
  */
 export function migrateIfNeeded(): void {
-  // 1. Check if already migrated (fast path)
-  if (existsSync(MIGRATION_DONE_FILE)) {
-    log('Migration: already completed, skipping');
-    return;
-  }
-
-  log('Migration: starting config/state separation...');
-
   // Ensure config directory exists
   if (!existsSync(CONFIG_DIR)) {
     mkdirSync(CONFIG_DIR, { recursive: true });
   }
 
-  // 2. Migrate old config.json to state.json if it exists
+  // Check if migration needed - recreate files if any are missing
+  const needsMigration = !existsSync(MIGRATION_DONE_FILE) || 
+                         !existsSync(STATE_FILE) || 
+                         !existsSync(NEW_CONFIG_FILE);
+
+  if (!needsMigration) {
+    log('Migration: all files present, skipping');
+    return;
+  }
+
+  // If marker exists but files are missing, just recreate defaults
+  if (existsSync(MIGRATION_DONE_FILE) && (!existsSync(STATE_FILE) || !existsSync(NEW_CONFIG_FILE))) {
+    log('Migration: files missing, recreating with defaults');
+    
+    // Create state.json with defaults
+    if (!existsSync(STATE_FILE)) {
+      writeFileSync(STATE_FILE, JSON.stringify(DEFAULT_STATE, null, 2));
+      log('Migration: state.json recreated with defaults');
+    }
+    
+    // Create config.json with defaults (atomic write)
+    if (!existsSync(NEW_CONFIG_FILE)) {
+      const tempFile = `${NEW_CONFIG_FILE}.tmp`;
+      writeFileSync(tempFile, JSON.stringify(DEFAULT_USER_CONFIG, null, 2));
+      renameSync(tempFile, NEW_CONFIG_FILE);
+      log('Migration: config.json recreated with defaults');
+    }
+    
+    return;
+  }
+
+  log('Migration: starting config/state separation...');
+
+  // 3. Migrate old config.json to state.json if it exists
   if (existsSync(OLD_CONFIG_FILE)) {
     try {
       const oldContent = JSON.parse(readFileSync(OLD_CONFIG_FILE, 'utf-8'));
@@ -70,6 +94,7 @@ export function migrateIfNeeded(): void {
         injectionMode: oldContent.injectionMode ?? DEFAULT_USER_CONFIG.injectionMode,
         subagentMode: oldContent.subagentMode ?? DEFAULT_USER_CONFIG.subagentMode,
         maxMemories: oldContent.maxMemories ?? DEFAULT_USER_CONFIG.maxMemories,
+        embeddingsEnabled: oldContent.embeddingsEnabled ?? DEFAULT_USER_CONFIG.embeddingsEnabled,
       };
       
       // Atomic write: write to temp file first, then rename (M2: atomic operation)
@@ -86,7 +111,7 @@ export function migrateIfNeeded(): void {
     }
   }
 
-  // 3. Create new config.json with defaults (if not exists) - atomic write
+  // 4. Create new config.json with defaults (if not exists) - atomic write
   if (!existsSync(NEW_CONFIG_FILE)) {
     const tempFile = `${NEW_CONFIG_FILE}.tmp`;
     writeFileSync(tempFile, JSON.stringify(DEFAULT_USER_CONFIG, null, 2));
@@ -96,7 +121,7 @@ export function migrateIfNeeded(): void {
     log('Migration: config.json already exists, preserving user settings');
   }
 
-  // 4. Create migration marker
+  // 5. Create migration marker
   writeFileSync(MIGRATION_DONE_FILE, JSON.stringify({
     version: '1.3.0',
     migratedAt: new Date().toISOString()

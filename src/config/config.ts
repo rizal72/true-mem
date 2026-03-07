@@ -4,7 +4,7 @@
  * Loads and manages user configuration from config.json with env var override.
  * 
  * Priority (highest to lowest):
- * 1. Environment variables (TRUE_MEM_INJECTION_MODE, TRUE_MEM_SUBAGENT_MODE, TRUE_MEM_MAX_MEMORIES)
+ * 1. Environment variables (TRUE_MEM_INJECTION_MODE, TRUE_MEM_SUBAGENT_MODE, TRUE_MEM_MAX_MEMORIES, TRUE_MEM_EMBEDDINGS)
  * 2. config.json file
  * 3. Default values
  * 
@@ -77,6 +77,20 @@ function parseMaxMemories(envValue: string | undefined): number {
 }
 
 /**
+ * Parse embeddings enabled from env or return default
+ */
+function parseEmbeddingsEnabled(envValue: string | undefined): boolean {
+  if (!envValue) return DEFAULT_USER_CONFIG.embeddingsEnabled;
+  
+  if (envValue !== '0' && envValue !== '1') {
+    log(`Config: Invalid TRUE_MEM_EMBEDDINGS: ${envValue}, using default (${DEFAULT_USER_CONFIG.embeddingsEnabled})`);
+    return DEFAULT_USER_CONFIG.embeddingsEnabled;
+  }
+  
+  return envValue === '1';
+}
+
+/**
  * Load user configuration
  * 
  * Flow:
@@ -105,6 +119,7 @@ export function loadConfig(): TrueMemUserConfig {
   const envInjectionMode = process.env.TRUE_MEM_INJECTION_MODE;
   const envSubagentMode = process.env.TRUE_MEM_SUBAGENT_MODE;
   const envMaxMemories = process.env.TRUE_MEM_MAX_MEMORIES;
+  const envEmbeddingsEnabled = process.env.TRUE_MEM_EMBEDDINGS;
 
   const config: TrueMemUserConfig = {
     injectionMode: envInjectionMode !== undefined
@@ -116,10 +131,13 @@ export function loadConfig(): TrueMemUserConfig {
     maxMemories: envMaxMemories !== undefined
       ? parseMaxMemories(envMaxMemories)
       : (fileConfig.maxMemories ?? DEFAULT_USER_CONFIG.maxMemories),
+    embeddingsEnabled: envEmbeddingsEnabled !== undefined
+      ? parseEmbeddingsEnabled(envEmbeddingsEnabled)
+      : (fileConfig.embeddingsEnabled ?? DEFAULT_USER_CONFIG.embeddingsEnabled),
   };
   
   // Log the final config
-  log(`Config: injectionMode=${config.injectionMode}, subagentMode=${config.subagentMode}, maxMemories=${config.maxMemories}`);
+  log(`Config: injectionMode=${config.injectionMode}, subagentMode=${config.subagentMode}, maxMemories=${config.maxMemories}, embeddingsEnabled=${config.embeddingsEnabled}`);
   
   return config;
 }
@@ -161,4 +179,11 @@ export function getSubAgentMode(): SubAgentMode {
  */
 export function getMaxMemories(): number {
   return loadConfig().maxMemories;
+}
+
+/**
+ * Get embeddings enabled (convenience function)
+ */
+export function getEmbeddingsEnabledFromConfig(): boolean {
+  return loadConfig().embeddingsEnabled;
 }
