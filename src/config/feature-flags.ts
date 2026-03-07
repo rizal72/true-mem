@@ -5,13 +5,6 @@
  * This module bridges the gap by persisting env var values to config file.
  * 
  * Priority: process.env → config file → false (default)
- * 
- * ## Feature Flags
- * 
- * | Env Var | Default | Description |
- * |---------|---------|-------------|
- * | TRUE_MEM_EMBEDDINGS | 0 | Enable hybrid embeddings (Jaccard + cosine similarity) |
- * | TRUE_MEM_INJECT_SUBAGENTS | 1 | Inject memories into sub-agent sessions (0=disable) |
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
