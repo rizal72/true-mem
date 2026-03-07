@@ -2,7 +2,7 @@
 
 **Date**: 2026-03-07
 **Version**: 1.0.0
-**Status**: IMPLEMENTED - Deployed in v1.2.0-rc.0
+**Status**: COMPLETED - v1.3.0 (Phase 1+2+3) - Pending testing
 **Target Branch**: `develop` (testing) → `main` (release)
 
 ---
@@ -665,28 +665,28 @@ Savings: 19,000 tokens (76% reduction)
 
 ### Phase 1: Core Implementation
 
-- [ ] Create `src/config/injection-mode.ts`
-- [ ] Create `src/adapters/opencode/injection-tracker.ts`
-- [ ] Add `InjectionMode` type to `src/types.ts`
-- [ ] Update `src/config.ts` with injection config
-- [ ] Modify `experimental.chat.system.transform` hook
-- [ ] Update `session.created` event handler
-- [ ] Add unit tests for injection mode parser
-- [ ] Add integration tests for session tracking
+- [x] Create `src/config/injection-mode.ts`
+- [x] Create `src/adapters/opencode/injection-tracker.ts`
+- [x] Add `InjectionMode` type to `src/types.ts`
+- [x] Update `src/config.ts` with injection config
+- [x] Modify `experimental.chat.system.transform` hook
+- [x] Update `session.created` event handler
+- [ ] Add unit tests for injection mode parser (post-testing)
+- [ ] Add integration tests for session tracking (post-testing)
 
 ### Phase 2: Resume Detection
 
-- [ ] Implement `isResumedSession()` check
-- [ ] Implement `shouldInjectResumedSession()` check
-- [ ] Add tests for resumed session handling
-- [ ] Document `opencode -c` behavior
+- [x] Implement `isResumedSession()` check
+- [x] Implement `shouldInjectResumedSession()` check
+- [x] Add tests for resumed session handling
+- [x] Document `opencode -c` behavior
 
 ### Phase 3: Sub-Agent Control (Optional)
 
-- [ ] Add `TRUE_MEM_SUBAGENT_MODE` config
-- [ ] Modify `tool.execute.before` hook
-- [ ] Add tests for sub-agent modes
-- [ ] Document sub-agent injection behavior
+- [x] Add `TRUE_MEM_SUBAGENT_MODE` config
+- [x] Modify `tool.execute.before` hook
+- [x] Add tests for sub-agent modes
+- [x] Document sub-agent injection behavior
 
 ### Documentation
 
@@ -694,6 +694,10 @@ Savings: 19,000 tokens (76% reduction)
 - [ ] Update README.md with injection modes
 - [ ] Add migration guide for existing users
 - [ ] Update CHANGELOG.md
+
+---
+
+**Note:** Implementation completed on 2026-03-07. Unit and integration tests marked as post-testing tasks.
 
 ---
 
