@@ -68,6 +68,33 @@ export type MemoryStore = 'stm' | 'ltm';
 export type MemoryStatus = 'active' | 'decayed' | 'pinned' | 'forgotten';
 
 // =============================================================================
+// Injection Mode Types
+// =============================================================================
+
+/**
+ * Injection mode for memory context
+ * 0 = DISABLED - Never inject
+ * 1 = SESSION_START - Inject only at session start (default)
+ * 2 = ALWAYS - Inject on every prompt (legacy)
+ */
+export type InjectionMode = 0 | 1 | 2;
+
+/**
+ * Sub-agent injection mode
+ * 0 = DISABLED - Don't inject into sub-agents
+ * 1 = ENABLED - Inject into sub-agents (default)
+ */
+export type SubAgentMode = 0 | 1;
+
+/**
+ * Injection configuration
+ */
+export interface InjectionConfig {
+  mode: InjectionMode;
+  subAgentMode: SubAgentMode;
+}
+
+// =============================================================================
 // Role-Aware Memory Types
 // =============================================================================
 
@@ -383,6 +410,7 @@ export interface OpenCodeConfig {
   maxSessionStartMemories: number;
   messageWindowSize: number;
   messageImportanceThreshold: number;
+  injection: InjectionConfig;
 }
 
 export interface ScopeQuotas {

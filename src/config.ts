@@ -4,6 +4,7 @@
 
 import { log } from './logger.js';
 import type { PsychMemConfig, ScoringWeights, OpenCodeConfig, SweepConfig, ScopeQuotas } from './types.js';
+import { getInjectionConfig } from './config/injection-mode.js';
 
 /**
  * Compute scope quotas based on max memories
@@ -71,6 +72,7 @@ export const DEFAULT_OPENCODE_CONFIG: OpenCodeConfig = {
   maxSessionStartMemories: 10,
   messageWindowSize: 3,
   messageImportanceThreshold: 0.5,
+  injection: getInjectionConfig(),
 };
 
 // Full default config

@@ -23,6 +23,12 @@ import { parseConversationLines } from '../../memory/role-patterns.js';
 import { getAtomicMemories, wrapMemories, selectMemoriesForInjection, type InjectionState } from './injection.js';
 import { getVersion } from '../../utils/version.js';
 import { EmbeddingService } from '../../memory/embeddings-nlp.js';
+import { 
+  markSessionCreated, 
+  hasInjected, 
+  markInjected, 
+  ensureSessionTracked 
+} from './injection-tracker.js';
 
 // Debounce state for message.updated events
 let messageDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -261,6 +267,10 @@ export async function createTrueMemoryPlugin(
       switch (event.type) {
         case 'session.created':
           await handleSessionCreated(state, sessionId);
+          // Track session for injection mode 1
+          if (sessionId) {
+            markSessionCreated(sessionId);
+          }
           break;
         case 'session.idle':
           // Add extraction job to queue for sequential processing
@@ -388,7 +398,30 @@ export async function createTrueMemoryPlugin(
     },
 
     'experimental.chat.system.transform': async (input, output) => {
-      log('experimental.chat.system.transform: Injecting all relevant memories');
+      const sessionId = input.sessionID ?? state.currentSessionId ?? undefined;
+      const injectionMode = state.config.opencode.injection?.mode ?? 2;
+      
+      // Mode 0: DISABLED - Skip all injection
+      if (injectionMode === 0) {
+        log('Injection disabled (mode=0)');
+        return;
+      }
+      
+      // Ensure session is tracked
+      if (sessionId) {
+        ensureSessionTracked(sessionId);
+      }
+      
+      // Mode 1: SESSION_START - Inject only once per session
+      if (injectionMode === 1 && sessionId) {
+        if (hasInjected(sessionId)) {
+          log(`Skipping injection: already injected for session ${sessionId.slice(0, 8)}...`);
+          return;
+        }
+      }
+      
+      // Mode 2: ALWAYS - Continue with injection (current behavior)
+      log(`Injecting memories (mode=${injectionMode})`);
 
       try {
         // Extract context from conversation (convert null to undefined for type safety)
@@ -424,6 +457,11 @@ export async function createTrueMemoryPlugin(
 
           output.system = systemArray;
 
+          // Mark as injected after successful injection (mode 1)
+          if (injectionMode === 1 && sessionId) {
+            markInjected(sessionId);
+          }
+          
           log(`Global injection: ${allMemories.length} memories injected into system prompt [embeddings=${embeddingsEnabled}]`);
         }
       } catch (error) {
