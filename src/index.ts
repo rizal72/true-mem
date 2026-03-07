@@ -14,7 +14,7 @@ import { log } from './logger.js';
 import { getVersion } from './utils/version.js';
 import { showToast } from './utils/toast.js';
 import { EmbeddingService } from './memory/embeddings-nlp.js';
-import { getEmbeddingsEnabled } from './config/feature-flags.js';
+import { getEmbeddingsEnabled } from './config/state.js';
 
 // Singleton state - shared across all hook calls
 let state: {

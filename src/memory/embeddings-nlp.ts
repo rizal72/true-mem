@@ -80,7 +80,7 @@ export class EmbeddingService {
   async initialize(): Promise<boolean> {
     // DEFENSIVE: Verify embeddings should be enabled
     // This prevents accidental initialization if called directly
-    const { getEmbeddingsEnabled, getNodePath } = await import('../config/feature-flags.js');
+    const { getEmbeddingsEnabled, getNodePath } = await import('../config/state.js');
     if (!getEmbeddingsEnabled()) {
       log('DEFENSIVE: initialize() called but embeddings disabled - aborting');
       return false;

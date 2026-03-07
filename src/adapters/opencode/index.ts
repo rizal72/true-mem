@@ -7,6 +7,7 @@ const BUILD_TIME = "2026-02-23T09:45:00.000Z";
 import type { PluginInput, Hooks, Event, Message, Part } from '../../types.js';
 import type { PsychMemConfig, MemoryUnit, RoleAwareContext, RoleAwareLine, MessageRole } from '../../types.js';
 import { DEFAULT_CONFIG } from '../../config.js';
+import { migrateIfNeeded } from '../../config/migration.js';
 import { MemoryDatabase, createMemoryDatabase } from '../../storage/database.js';
 import { log } from '../../logger.js';
 import {
@@ -194,6 +195,9 @@ export async function createTrueMemoryPlugin(
   configOverrides: Partial<PsychMemConfig> = {}
 ): Promise<Hooks> {
   log('createTrueMemoryPlugin called');
+  
+  // Run migration if needed (idempotent)
+  migrateIfNeeded();
   
   const config: PsychMemConfig = {
     ...DEFAULT_CONFIG,

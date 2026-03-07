@@ -1,6 +1,9 @@
 /**
  * Injection Mode Configuration
  * 
+ * Provides injection and sub-agent mode settings.
+ * Now uses loadConfig() from config.ts for unified config management.
+ * 
  * TRUE_MEM_INJECTION_MODE:
  *   0 = SESSION_START - Inject only at session start (DEFAULT)
  *   1 = ALWAYS - Inject on every prompt (legacy behavior)
@@ -8,60 +11,39 @@
  * TRUE_MEM_SUBAGENT_MODE:
  *   0 = DISABLED - Don't inject into task/background_task prompts
  *   1 = ENABLED - Inject into sub-agents (DEFAULT)
+ * 
+ * These can also be set in config.json or overridden by environment variables.
  */
 
-import { log } from '../logger.js';
-
-export type InjectionMode = 0 | 1;
-export type SubAgentMode = 0 | 1;
+import { loadConfig } from './config.js';
+import type { InjectionMode, SubAgentMode } from '../types/config.js';
 
 export interface InjectionConfig {
   mode: InjectionMode;
   subAgentMode: SubAgentMode;
 }
 
+/**
+ * Get injection mode from config
+ */
 export function parseInjectionMode(): InjectionMode {
-  const envValue = process.env.TRUE_MEM_INJECTION_MODE;
-  
-  if (!envValue) return 0; // Default: SESSION_START
-  
-  const parsed = parseInt(envValue, 10);
-  
-  if (![0, 1].includes(parsed)) {
-    log(`Invalid TRUE_MEM_INJECTION_MODE: ${envValue}, using default (0)`);
-    return 0;
-  }
-  
-  const mode = parsed as InjectionMode;
-  log(`Injection mode: ${mode} (${getModeLabel(mode)})`);
-  return mode;
+  return loadConfig().injectionMode;
 }
 
+/**
+ * Get sub-agent mode from config
+ */
 export function parseSubAgentMode(): SubAgentMode {
-  const envValue = process.env.TRUE_MEM_SUBAGENT_MODE;
-  
-  if (!envValue) return 1; // Default: enabled
-  
-  const parsed = parseInt(envValue, 10);
-  
-  if (![0, 1].includes(parsed)) {
-    log(`Invalid TRUE_MEM_SUBAGENT_MODE: ${envValue}, using default (1)`);
-    return 1;
-  }
-  
-  return parsed as SubAgentMode;
+  return loadConfig().subagentMode;
 }
 
+/**
+ * Get complete injection config
+ */
 export function getInjectionConfig(): InjectionConfig {
+  const config = loadConfig();
   return {
-    mode: parseInjectionMode(),
-    subAgentMode: parseSubAgentMode(),
+    mode: config.injectionMode,
+    subAgentMode: config.subagentMode,
   };
-}
-
-function getModeLabel(mode: InjectionMode): string {
-  switch (mode) {
-    case 0: return 'SESSION_START';
-    case 1: return 'ALWAYS';
-  }
 }
