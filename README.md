@@ -10,6 +10,7 @@
 - [Key Features](#key-features)
 - [Noise Filtering](#noise-filtering)
 - [Installation](#installation)
+- [Configuration](#configuration)
 - [Usage](#usage)
 - [Advanced: Semantic Embeddings (Experimental)](#advanced-semantic-embeddings-experimental)
 - [Architecture](#architecture)
