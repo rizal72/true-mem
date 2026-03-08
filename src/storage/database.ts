@@ -608,13 +608,15 @@ export class MemoryDatabase {
       `;
       params = [currentProject];
     } else {
-      // Fallback: return ALL memories when project is not determinable
-      // This ensures injection works even when worktree resolution fails
+      // FIX #2: Return ONLY global memories when project undetermined
+      // This prevents cross-project memory leakage
       query = `
         SELECT * FROM memory_units
         WHERE status = 'active'
+        AND project_scope IS NULL
       `;
       params = [];
+      log('WARNING: Invalid project scope, returning only global memories');
     }
 
     if (store) {

@@ -223,23 +223,34 @@ export async function createTrueMemoryPlugin(
     return !!(path && path !== '/' && path !== '\\' && path.trim().length > 0);
   };
 
-  // FIX: Persist worktree across plugin restarts (OpenCode lifecycle)
-  // When server.instance.disposed fires, ctx.worktree becomes undefined on restart
-  // Use file-based persistence because module-level variables don't survive plugin reloads
-  const persistedWorktree = getPersistedWorktree();
+  // FIX #1: Invert cache priority - ctx > directory > cache (fallback)
+  // This ensures switching projects works correctly
+  // Previous logic gave priority to cache, causing project-scoped memories to leak
   let worktree: string;
-  
-  if (persistedWorktree && isValidPath(persistedWorktree)) {
-    worktree = persistedWorktree;
-    log(`Worktree restored from cache: ${worktree}`);
-  } else if (isValidPath(ctx.worktree)) {
+
+  if (isValidPath(ctx.worktree)) {
     worktree = ctx.worktree;
     setPersistedWorktree(worktree);
+    log(`Worktree from context: ${worktree}`);
   } else if (isValidPath(ctx.directory)) {
     worktree = ctx.directory;
     setPersistedWorktree(worktree);
+    log(`Worktree from directory: ${worktree}`);
   } else {
-    worktree = `unknown-project-${Date.now()}`;
+    const persistedWorktree = getPersistedWorktree();
+    if (persistedWorktree && isValidPath(persistedWorktree)) {
+      worktree = persistedWorktree;
+      log(`Worktree from cache (fallback): ${worktree}`);
+    } else {
+      worktree = `unknown-project-${Date.now()}`;
+      log(`WARNING: Could not determine worktree, using fallback`);
+    }
+  }
+
+  // FIX #3: Cache invalidation logging - detect project changes for debugging
+  const previousWorktree = getPersistedWorktree();
+  if (previousWorktree && previousWorktree !== worktree && !worktree.startsWith('unknown-project')) {
+    log(`Project changed: ${previousWorktree} -> ${worktree}`);
   }
   
   const state: TrueMemoryAdapterState = {
@@ -412,6 +423,15 @@ export async function createTrueMemoryPlugin(
     'experimental.chat.system.transform': async (input, output) => {
       const sessionId = input.sessionID ?? state.currentSessionId ?? undefined;
       const injectionMode = state.config.opencode.injection?.mode ?? 0;
+
+      // FIX #4: Runtime worktree validation - update if ctx changed mid-session
+      // This handles the case where user switches projects within the same session
+      // Note: ctx is from the outer plugin scope, not the input object
+      if (isValidPath(ctx.worktree) && ctx.worktree !== state.worktree) {
+        log(`Worktree changed mid-session: ${state.worktree} -> ${ctx.worktree}`);
+        state.worktree = ctx.worktree;
+        setPersistedWorktree(ctx.worktree);
+      }
       
       // Ensure session is tracked
       if (sessionId) {

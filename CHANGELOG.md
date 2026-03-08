@@ -2,6 +2,21 @@
 
 All notable changes to True-Mem will be documented in this file.
 
+## [1.3.1] - 2026-03-08
+
+### Fixed - Project Scope Memory Leakage
+- **Critical Bug**: Project-scoped memories were leaking across projects
+- Root cause: Worktree cache had priority over ctx.worktree when switching projects
+- Fix #1: Inverted cache priority - ctx > directory > cache (fallback)
+- Fix #2: Safe fallback query returns only global memories when project undetermined
+- Fix #3: Added cache invalidation logging for debugging
+- Fix #4: Runtime worktree validation in transform hook for mid-session changes
+
+### Technical
+- `src/adapters/opencode/index.ts` - Worktree resolution logic rewritten
+- `src/storage/database.ts` - Fallback query now filters by `project_scope IS NULL`
+- Oracle code review: APPROVED with 85% confidence
+
 ## [1.3.0] - 2026-03-07
 
 ### Added

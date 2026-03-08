@@ -19,16 +19,16 @@ STATE         = ~/.true-mem/state.json      # Runtime state (auto-managed)
 
 ## CURRENT STATUS
 
-**Aggiornamento**: 07/03/2026 - v1.3.0 - Config/State Separation Complete
+**Aggiornamento**: 08/03/2026 - v1.3.1 - Project Scope Leakage Fix
 
 ### Stato Implementazione
 
 | Componente | Status |
 |------------|--------|
-| Build (bun) | ✅ OK - ~147 KB |
+| Build (bun) | ✅ OK - ~155 KB |
 | TypeCheck | ✅ OK - 0 errors |
 | Runtime | ✅ OK - Funzionante |
-| npm | Pubblicato 1.1.1 (main), rc in develop |
+| npm | Pubblicato 1.3.0 (main), develop in sync |
 | GitHub Actions | OK - NPM_TOKEN secret |
 | Toast | OK - Tutte le sessioni |
 | Meta-Command | OK - Previene loop infiniti |
@@ -38,6 +38,7 @@ STATE         = ~/.true-mem/state.json      # Runtime state (auto-managed)
 | Session Resume | ✅ Phase 2 - Detect resumed sessions |
 | Sub-Agent Mode | ✅ Phase 3 - Configurable sub-agent injection |
 | Config System | ✅ v1.3.0 - Separate config.json + state.json |
+| Project Scope | ✅ v1.3.1 - Fixed memory leakage across projects |
 
 ---
 
