@@ -57,7 +57,8 @@ export function getEmbeddingsEnabled(): boolean {
 
   // 2. process.env undefined → check user config (config.json)
   log('State: env var undefined, checking user config (config.json)');
-  const userConfigEnabled = getEmbeddingsEnabledFromConfig();
+  const userConfigEnabledNum = getEmbeddingsEnabledFromConfig();
+  const userConfigEnabled = userConfigEnabledNum === 1;
   if (userConfigEnabled !== DEFAULT_STATE.embeddingsEnabled) {
     // Update state file to persist user config choice
     const existingState = loadState();

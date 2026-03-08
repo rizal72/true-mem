@@ -17,7 +17,7 @@ import { DEFAULT_USER_CONFIG, DEFAULT_STATE } from '../types/config.js';
 const CONFIG_DIR = join(homedir(), '.true-mem');
 const OLD_CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 const STATE_FILE = join(CONFIG_DIR, 'state.json');
-const NEW_CONFIG_FILE = join(CONFIG_DIR, 'config.json');
+const NEW_CONFIG_FILE = join(CONFIG_DIR, 'config.jsonc');
 
 /**
  * Migration status marker file
@@ -94,7 +94,9 @@ export function migrateIfNeeded(): void {
         injectionMode: oldContent.injectionMode ?? DEFAULT_USER_CONFIG.injectionMode,
         subagentMode: oldContent.subagentMode ?? DEFAULT_USER_CONFIG.subagentMode,
         maxMemories: oldContent.maxMemories ?? DEFAULT_USER_CONFIG.maxMemories,
-        embeddingsEnabled: oldContent.embeddingsEnabled ?? DEFAULT_USER_CONFIG.embeddingsEnabled,
+        embeddingsEnabled: typeof oldContent.embeddingsEnabled === 'boolean' 
+          ? (oldContent.embeddingsEnabled ? 1 : 0)
+          : (oldContent.embeddingsEnabled ?? DEFAULT_USER_CONFIG.embeddingsEnabled),
       };
       
       // Atomic write: write to temp file first, then rename (M2: atomic operation)

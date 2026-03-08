@@ -17,9 +17,10 @@ import { homedir } from 'os';
 import { log } from '../logger.js';
 import type { TrueMemUserConfig, InjectionMode, SubAgentMode } from '../types/config.js';
 import { DEFAULT_USER_CONFIG } from '../types/config.js';
+import { parseJsonc } from '../utils/jsonc.js';
 
 const CONFIG_DIR = join(homedir(), '.true-mem');
-const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
+const CONFIG_FILE = join(CONFIG_DIR, 'config.jsonc');
 
 /**
  * Parse injection mode from env or return default
@@ -77,17 +78,29 @@ function parseMaxMemories(envValue: string | undefined): number {
 }
 
 /**
- * Parse embeddings enabled from env or return default
+ * Validate embeddings enabled from file config
+ * Returns 0 or 1, or default if invalid
  */
-function parseEmbeddingsEnabled(envValue: string | undefined): boolean {
+function validateEmbeddingsEnabled(value: unknown): number {
+  if (value === 0 || value === 1) return value;
+  log(`Config: Invalid embeddingsEnabled in file: ${value}, using default`);
+  return DEFAULT_USER_CONFIG.embeddingsEnabled;
+}
+
+/**
+ * Parse embeddings enabled from env or return default
+ * Returns 0 or 1 (number for JSONC config compatibility)
+ */
+function parseEmbeddingsEnabled(envValue: string | undefined): number {
   if (!envValue) return DEFAULT_USER_CONFIG.embeddingsEnabled;
   
+  // Validate input is '0' or '1'
   if (envValue !== '0' && envValue !== '1') {
     log(`Config: Invalid TRUE_MEM_EMBEDDINGS: ${envValue}, using default (${DEFAULT_USER_CONFIG.embeddingsEnabled})`);
     return DEFAULT_USER_CONFIG.embeddingsEnabled;
   }
   
-  return envValue === '1';
+  return parseInt(envValue, 10);
 }
 
 /**
@@ -107,10 +120,10 @@ export function loadConfig(): TrueMemUserConfig {
   if (existsSync(CONFIG_FILE)) {
     try {
       const configJson = readFileSync(CONFIG_FILE, 'utf-8');
-      fileConfig = JSON.parse(configJson);
+      fileConfig = parseJsonc<Partial<TrueMemUserConfig>>(configJson);
       log(`Config: Loaded from ${CONFIG_FILE}`);
     } catch (err) {
-      log(`Config: Error reading config.json, using defaults: ${err}`);
+      log(`Config: Error reading config.jsonc, using defaults: ${err}`);
     }
   }
   
@@ -133,7 +146,7 @@ export function loadConfig(): TrueMemUserConfig {
       : (fileConfig.maxMemories ?? DEFAULT_USER_CONFIG.maxMemories),
     embeddingsEnabled: envEmbeddingsEnabled !== undefined
       ? parseEmbeddingsEnabled(envEmbeddingsEnabled)
-      : (fileConfig.embeddingsEnabled ?? DEFAULT_USER_CONFIG.embeddingsEnabled),
+      : validateEmbeddingsEnabled(fileConfig.embeddingsEnabled),
   };
   
   // Log the final config
@@ -182,8 +195,9 @@ export function getMaxMemories(): number {
 }
 
 /**
- * Get embeddings enabled (convenience function)
+ * Get embeddings enabled from config (convenience function)
+ * Returns 0 or 1 (number for JSONC config compatibility)
  */
-export function getEmbeddingsEnabledFromConfig(): boolean {
+export function getEmbeddingsEnabledFromConfig(): number {
   return loadConfig().embeddingsEnabled;
 }

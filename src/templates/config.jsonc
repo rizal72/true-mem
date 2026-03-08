@@ -1,0 +1,13 @@
+{
+  // Injection mode: 0 = session start only (recommended), 1 = every prompt
+  "injectionMode": 0,
+  
+  // Sub-agent mode: 0 = disabled, 1 = enabled (default)
+  "subagentMode": 1,
+  
+  // Embeddings: 0 = Jaccard similarity only, 1 = hybrid (Jaccard + embeddings)
+  "embeddingsEnabled": 0,
+  
+  // Maximum memories to inject per prompt (10-50 recommended)
+  "maxMemories": 20
+}
