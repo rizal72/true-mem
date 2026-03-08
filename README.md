@@ -155,10 +155,10 @@ True-Mem creates a configuration file at `~/.true-mem/config.jsonc` on first run
 
 | Setting | Values | Description |
 |---------|--------|-------------|
-| **injectionMode** | `0` or `1` | `0` = inject memories only at session start (saves tokens). `1` = inject on every prompt (legacy behavior) |
+| **injectionMode** | `0` or `1` | `0` = inject memories only at session start (saves tokens, default). `1` = inject on every prompt (legacy behavior) |
 | **subagentMode** | `0` or `1` | `0` = disable memory injection for sub-agents. `1` = enable for sub-agents (default) |
 | **embeddingsEnabled** | `0` or `1` | `0` = use Jaccard similarity only (fast, default). `1` = use hybrid semantic embeddings (experimental) |
-| **maxMemories** | `10-50` | How many memories to include in each prompt. Lower = fewer tokens, Higher = more context |
+| **maxMemories** | `10-50` | How many memories to include in each prompt (default: 20). Lower = fewer tokens, Higher = more context |
 
 ### Environment Variables
 
