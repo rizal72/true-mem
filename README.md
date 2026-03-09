@@ -162,8 +162,8 @@ True-Mem creates a configuration file at `~/.true-mem/config.jsonc` on first run
 | **maxMemories** | `10-50` | How many memories to include in each prompt (default: 20). Lower = fewer tokens, Higher = more context |
 
 **Injection Mode Trade-off:**
-- **Mode 1 (ALWAYS)** - Default. Real-time memory updates. New memories appear immediately. Best for most users.
-- **Mode 0 (SESSION_START)**: Memories are injected once at session start. New memories extracted during the session won't appear until you restart OpenCode. Best for long sessions (20+ prompts) where token cost matters.
+- **Mode 1 (ALWAYS)** - Default. Real-time memory updates, at each prompt. New memories appear immediately. Best for most users.
+- **Mode 0 (SESSION_START)**: Memories are injected once at session start (both /new and --continue). New memories extracted during the session won't appear until you restart OpenCode. Best for long sessions (20+ prompts) where token cost matters.
 
 ### Environment Variables
 
