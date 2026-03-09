@@ -19,7 +19,7 @@ STATE         = ~/.true-mem/state.json      # Runtime state (auto-managed)
 
 ## CURRENT STATUS
 
-**Aggiornamento**: 08/03/2026 - v1.3.1 - Project Scope Leakage Fix
+**Aggiornamento**: 09/03/2026 - v1.3.2 - Default Injection Mode Changed
 
 ### Stato Implementazione
 
@@ -28,13 +28,13 @@ STATE         = ~/.true-mem/state.json      # Runtime state (auto-managed)
 | Build (bun) | ✅ OK - ~155 KB |
 | TypeCheck | ✅ OK - 0 errors |
 | Runtime | ✅ OK - Funzionante |
-| npm | Pubblicato 1.3.0 (main), develop in sync |
+| npm | Pubblicato 1.3.1 (main), develop in sync |
 | GitHub Actions | OK - NPM_TOKEN secret |
 | Toast | OK - Tutte le sessioni |
 | Meta-Command | OK - Previene loop infiniti |
 | Hot-Reload | ✅ OK - Node.js path persistence + debounce (1s) |
 | Log Rotation | ✅ OK - 1MB con 1 backup |
-| Injection Mode | ✅ v1.3.0 - Phase 1+2+3 Complete |
+| Injection Mode | ✅ v1.3.2 - Default changed to 1 (ALWAYS) |
 | Session Resume | ✅ Phase 2 - Detect resumed sessions |
 | Sub-Agent Mode | ✅ Phase 3 - Configurable sub-agent injection |
 | Config System | ✅ v1.3.0 - Separate config.json + state.json |
@@ -92,18 +92,19 @@ export TRUE_MEM_MAX_MEMORIES=15  # Meno token
 
 | Mode | Value | Behavior | Token Savings |
 |------|-------|----------|---------------|
-| SESSION_START | 0 | Inject only at session start (DEFAULT) | ~76% |
-| ALWAYS | 1 | Inject on every prompt (legacy) | 0% |
+| SESSION_START | 0 | Inject only at session start | ~76% |
+| ALWAYS | 1 | Inject on every prompt (DEFAULT) | 0% |
 
 **Environment Variables:**
 
-- `TRUE_MEM_INJECTION_MODE` - 0=SESSION_START (default), 1=ALWAYS
+- `TRUE_MEM_INJECTION_MODE` - 0=SESSION_START, 1=ALWAYS (default)
 - `TRUE_MEM_SUBAGENT_MODE` - 0=DISABLED, 1=ENABLED (default)
 - `TRUE_MEM_MAX_MEMORIES` - Default 20
 - `TRUE_MEM_EMBEDDINGS` - 0=Jaccard only (default), 1=Hybrid
 
-**Phase 1**: Default=0 - First prompt in session → inject, subsequent → skip  
-**Phase 2**: Session resume detection - skips if context already present  
+**v1.3.2**: Default changed to 1 (ALWAYS) - real-time memory updates
+**Phase 1**: Mode 1 = inject every prompt, Mode 0 = inject once per session
+**Phase 2**: Session resume detection - skips if context already present
 **Phase 3**: Controls injection into task/background_task prompts
 
 ---

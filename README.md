@@ -138,8 +138,8 @@ True-Mem creates a configuration file at `~/.true-mem/config.jsonc` on first run
 
 ```jsonc
 {
-  // Injection mode: 0 = session start only (recommended), 1 = every prompt
-  "injectionMode": 0,
+  // Injection mode: 0 = session start only, 1 = every prompt (default, real-time updates)
+  "injectionMode": 1,
   
   // Sub-agent mode: 0 = disabled, 1 = enabled (default)
   "subagentMode": 1,
@@ -156,14 +156,14 @@ True-Mem creates a configuration file at `~/.true-mem/config.jsonc` on first run
 
 | Setting | Values | Description |
 |---------|--------|-------------|
-| **injectionMode** | `0` or `1` | `0` = inject at session start only (~76% token savings, default). `1` = inject on every prompt (legacy, immediate updates) |
+| **injectionMode** | `0` or `1` | `0` = inject at session start only (~76% token savings). `1` = inject on every prompt (default, real-time updates) |
 | **subagentMode** | `0` or `1` | `0` = disable memory injection for sub-agents. `1` = enable for sub-agents (default) |
 | **embeddingsEnabled** | `0` or `1` | `0` = use Jaccard similarity only (fast, default). `1` = use hybrid semantic embeddings (experimental) |
 | **maxMemories** | `10-50` | How many memories to include in each prompt (default: 20). Lower = fewer tokens, Higher = more context |
 
 **Injection Mode Trade-off:**
-- **Mode 0 (SESSION_START)**: Memories are injected once at session start. New memories extracted during the session won't appear until you restart OpenCode. Best for token savings.
-- **Mode 1 (ALWAYS)**: Memories are injected on every prompt. New memories appear immediately, but uses more tokens.
+- **Mode 1 (ALWAYS)** - Default. Real-time memory updates. New memories appear immediately. Best for most users.
+- **Mode 0 (SESSION_START)**: Memories are injected once at session start. New memories extracted during the session won't appear until you restart OpenCode. Best for long sessions (20+ prompts) where token cost matters.
 
 ### Environment Variables
 

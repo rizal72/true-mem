@@ -39,7 +39,7 @@ export interface TrueMemState {
  * Default user configuration
  */
 export const DEFAULT_USER_CONFIG: TrueMemUserConfig = {
-  injectionMode: 0,      // SESSION_START
+  injectionMode: 1,      // ALWAYS - real-time memory updates
   subagentMode: 1,       // ENABLED
   maxMemories: 20,
   embeddingsEnabled: 0,

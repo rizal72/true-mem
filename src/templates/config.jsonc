@@ -1,6 +1,6 @@
 {
-  // Injection mode: 0 = session start only (recommended), 1 = every prompt
-  "injectionMode": 0,
+  // Injection mode: 0 = session start only, 1 = every prompt (default, real-time updates)
+  "injectionMode": 1,
   
   // Sub-agent mode: 0 = disabled, 1 = enabled (default)
   "subagentMode": 1,

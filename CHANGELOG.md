@@ -2,6 +2,18 @@
 
 All notable changes to True-Mem will be documented in this file.
 
+## [1.3.2] - 2026-03-09
+
+### Changed - Default Injection Mode
+- **Breaking Change**: Default `injectionMode` changed from `0` to `1` (ALWAYS)
+- Real-time memory updates are now the default behavior
+- Users who prefer token savings can set `injectionMode: 0` in config
+- Rationale: Real-time feedback is core value proposition; token cost (~$0.10/session) is negligible
+
+### Documentation
+- Updated README with clear trade-off explanation
+- Updated config template with new default
+
 ## [1.3.1] - 2026-03-08
 
 ### Fixed - Project Scope Memory Leakage
