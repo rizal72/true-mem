@@ -583,6 +583,10 @@ async function processSessionIdle(
     return;
   }
 
+  // Guard against race condition: session.idle can fire before session.created
+  // completes its DB insert, causing FK constraint failures on memory_units.
+  state.db.ensureSessionExists(effectiveSessionId, state.worktree, { agentType: 'opencode' });
+
   // Global debounce: prevent rapid-fire extractions from multiple triggers
   if (!canExtract()) {
     return;
@@ -868,6 +872,10 @@ async function handlePostToolUse(
 ): Promise<void> {
   const sessionId = state.currentSessionId;
   if (!sessionId) return;
+
+  // Guard against race condition: tool.execute.after can fire before session.created
+  // completes its DB insert, causing FK constraint failures on events table.
+  state.db.ensureSessionExists(sessionId, state.worktree, { agentType: 'opencode' });
   
   const toolOutput = output.output && output.output.length > 2000
     ? output.output.slice(0, 2000) + '...[truncated]'
