@@ -417,6 +417,32 @@ export class MemoryDatabase {
     return this.rowToSession(row);
   }
 
+  /**
+   * Ensure a session exists in the database before FK-dependent operations.
+   * Uses INSERT OR IGNORE to be idempotent — safe to call multiple times.
+   *
+   * This guards against race conditions where events (session.idle,
+   * tool.execute.after) fire before session.created completes its DB insert,
+   * causing FOREIGN KEY constraint failures on events/memory_units tables.
+   */
+  ensureSessionExists(sessionId: string, project: string, metadata?: Record<string, unknown>): void {
+    this.ensureInit();
+
+    this.db.prepare(`
+      INSERT OR IGNORE INTO sessions (id, project, started_at, status, metadata, transcript_path, transcript_watermark, message_watermark)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      project,
+      new Date().toISOString(),
+      'active',
+      metadata ? JSON.stringify(metadata) : null,
+      null,
+      0,
+      0
+    );
+  }
+
   getMessageWatermark(sessionId: string): number {
     this.ensureInit();
     const row = this.db.prepare(`SELECT message_watermark FROM sessions WHERE id = ?`).get(sessionId) as any;

@@ -577,6 +577,10 @@ async function processSessionIdle(
     state.currentSessionId = sessionId;
   }
 
+  // Guard: ensure session exists before FK-dependent DB operations
+  state.db.ensureSessionExists(effectiveSessionId, state.worktree, { agentType: 'opencode' });
+  log(`processSessionIdle: ensuring session ${effectiveSessionId}, worktree=${state.worktree}`);
+
   // Skip extraction for sub-agent sessions to avoid duplicate extraction
   if (isSubAgentSession(effectiveSessionId)) {
     log(`Skipping extraction: sub-agent session detected (${effectiveSessionId})`);
@@ -868,11 +872,15 @@ async function handlePostToolUse(
 ): Promise<void> {
   const sessionId = state.currentSessionId;
   if (!sessionId) return;
-  
+
+  // Guard: ensure session exists before FK-dependent event insert
+  state.db.ensureSessionExists(sessionId, state.worktree, { agentType: 'opencode' });
+  log(`handlePostToolUse: ensuring session ${sessionId}, worktree=${state.worktree}`);
+
   const toolOutput = output.output && output.output.length > 2000
     ? output.output.slice(0, 2000) + '...[truncated]'
     : (output.output ?? '');
-  
+
   state.db.createEvent(sessionId, 'PostToolUse', '', {
     toolName: input.tool,
     toolInput: JSON.stringify(input.args),
